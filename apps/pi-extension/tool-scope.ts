@@ -26,7 +26,7 @@ export function getToolsForPhase(
 	];
 }
 
-// During planning, agents may write/edit any markdown file inside cwd.
+// Used by both the planning-phase write gate and plannotator_submit_plan.
 // Path must resolve inside cwd (no traversal, no absolute escape) and end
 // in a permitted markdown extension.
 export function isPlanWritePathAllowed(inputPath: string, cwd: string): boolean {
@@ -36,9 +36,4 @@ export function isPlanWritePathAllowed(inputPath: string, cwd: string): boolean 
 	if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) return false;
 	const ext = extname(targetAbs).toLowerCase();
 	return ALLOWED_PLAN_EXTENSIONS.has(ext);
-}
-
-// Validates an agent-supplied submit_plan path. Same rules as the write gate.
-export function isSubmitPathAllowed(inputPath: string, cwd: string): boolean {
-	return isPlanWritePathAllowed(inputPath, cwd);
 }

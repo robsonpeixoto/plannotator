@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import {
 	getToolsForPhase,
 	isPlanWritePathAllowed,
-	isSubmitPathAllowed,
 	PLAN_SUBMIT_TOOL,
 	stripPlanningOnlyTools,
 } from "./tool-scope";
@@ -85,20 +84,5 @@ describe("plan write path gate", () => {
 	test("extension check is case-insensitive", () => {
 		expect(isPlanWritePathAllowed("PLAN.MD", cwd)).toBe(true);
 		expect(isPlanWritePathAllowed("notes.MdX", cwd)).toBe(true);
-	});
-});
-
-describe("submit path gate", () => {
-	const cwd = "/r";
-
-	test("accepts markdown paths inside cwd", () => {
-		expect(isSubmitPathAllowed("PLAN.md", cwd)).toBe(true);
-		expect(isSubmitPathAllowed("plans/auth.md", cwd)).toBe(true);
-	});
-
-	test("rejects traversal and non-markdown", () => {
-		expect(isSubmitPathAllowed("../escape.md", cwd)).toBe(false);
-		expect(isSubmitPathAllowed("plan.txt", cwd)).toBe(false);
-		expect(isSubmitPathAllowed("plans/", cwd)).toBe(false);
 	});
 });

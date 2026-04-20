@@ -52,7 +52,6 @@ import {
 import {
 	getToolsForPhase,
 	isPlanWritePathAllowed,
-	isSubmitPathAllowed,
 	PLAN_SUBMIT_TOOL,
 	type Phase,
 	stripPlanningOnlyTools,
@@ -552,7 +551,7 @@ export default function plannotator(pi: ExtensionAPI): void {
 				};
 			}
 
-			if (!isSubmitPathAllowed(inputPath, ctx.cwd)) {
+			if (!isPlanWritePathAllowed(inputPath, ctx.cwd)) {
 				return {
 					content: [
 						{
