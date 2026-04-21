@@ -1,6 +1,5 @@
 import React from "react";
 import { Block } from "../types";
-import { slugifyHeading } from "../utils/slugify";
 import { InlineMarkdown } from "./InlineMarkdown";
 import { ListMarker } from "./ListMarker";
 import { CodeBlock } from "./blocks/CodeBlock";
@@ -18,7 +17,8 @@ export const BlockRenderer: React.FC<{
   checkboxOverrides?: Map<string, boolean>;
   orderedIndex?: number | null;
   githubRepo?: string;
-}> = ({ block, onOpenLinkedDoc, imageBaseDir, onImageClick, onToggleCheckbox, checkboxOverrides, orderedIndex, githubRepo }) => {
+  headingAnchorId?: string;
+}> = ({ block, onOpenLinkedDoc, imageBaseDir, onImageClick, onToggleCheckbox, checkboxOverrides, orderedIndex, githubRepo, headingAnchorId }) => {
   switch (block.type) {
     case 'heading': {
       const Tag = `h${block.level || 1}` as React.ElementType;
@@ -27,9 +27,7 @@ export const BlockRenderer: React.FC<{
         2: 'text-xl font-semibold mb-3 mt-8 text-foreground/90',
         3: 'text-base font-semibold mb-2 mt-6 text-foreground/80',
       }[block.level || 1] || 'text-base font-semibold mb-2 mt-4';
-      const anchorId = slugifyHeading(block.content) || undefined;
-
-      return <Tag id={anchorId} className={styles} data-block-id={block.id} data-block-type="heading"><InlineMarkdown imageBaseDir={imageBaseDir} onImageClick={onImageClick} text={block.content} onOpenLinkedDoc={onOpenLinkedDoc} githubRepo={githubRepo} /></Tag>;
+      return <Tag id={headingAnchorId} className={styles} data-block-id={block.id} data-block-type="heading"><InlineMarkdown imageBaseDir={imageBaseDir} onImageClick={onImageClick} text={block.content} onOpenLinkedDoc={onOpenLinkedDoc} githubRepo={githubRepo} /></Tag>;
     }
 
     case 'blockquote': {

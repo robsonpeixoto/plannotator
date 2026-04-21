@@ -24,8 +24,14 @@ describe('transformPlainText — smart punctuation', () => {
     expect(transformPlainText('before --- after')).toBe('before — after');
   });
 
-  test('converts double hyphen to en dash', () => {
+  test('converts double hyphen to en dash between digits', () => {
     expect(transformPlainText('pages 3--5')).toBe('pages 3–5');
+  });
+
+  test('leaves CLI flags alone', () => {
+    expect(transformPlainText('bun --watch')).toBe('bun --watch');
+    expect(transformPlainText('claude-code --model opus-4')).toBe('claude-code --model opus-4');
+    expect(transformPlainText('see --help')).toBe('see --help');
   });
 
   test('curls straight double quotes', () => {

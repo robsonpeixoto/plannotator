@@ -545,6 +545,32 @@ describe("parseMarkdownToBlocks — GitHub alerts", () => {
     expect(blocks[0].alertKind).toBeUndefined();
   });
 
+  test("alert body absorbs a list, producing one block with list-formatted content", () => {
+    const md = "> [!NOTE]\n> - first\n> - second";
+    const blocks = parseMarkdownToBlocks(md);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].type).toBe("blockquote");
+    expect(blocks[0].alertKind).toBe("note");
+    expect(blocks[0].content).toBe("- first\n- second");
+  });
+
+  test("alert body absorbs a code fence", () => {
+    const md = "> [!WARNING]\n> ```\n> danger\n> ```";
+    const blocks = parseMarkdownToBlocks(md);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].alertKind).toBe("warning");
+    expect(blocks[0].content).toBe("```\ndanger\n```");
+  });
+
+  test("blank line ends an alert", () => {
+    const md = "> [!TIP]\n> body line\n\nafter";
+    const blocks = parseMarkdownToBlocks(md);
+    expect(blocks[0].type).toBe("blockquote");
+    expect(blocks[0].alertKind).toBe("tip");
+    expect(blocks[0].content).toBe("body line");
+    expect(blocks[1].type).toBe("paragraph");
+  });
+
   test("marker-like text mid-quote is not treated as alert", () => {
     const md = "> intro\n> [!NOTE]";
     const blocks = parseMarkdownToBlocks(md);

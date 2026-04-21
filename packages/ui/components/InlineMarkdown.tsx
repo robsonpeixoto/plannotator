@@ -39,12 +39,28 @@ export const InlineMarkdown: React.FC<{
     }
 
     // Bare URL autolink: https://… preceded by word boundary.
-    // Trailing sentence punctuation is excluded so "See https://x.com." renders the period outside the link.
+    // Trailing sentence punctuation is trimmed so "See https://x.com."
+    // renders the period outside the link. Closing brackets are kept when
+    // they balance an earlier opener inside the URL (e.g. Wikipedia's
+    // https://…/Function_(mathematics) keeps its trailing paren).
     if (!/\w/.test(previousChar)) {
-      const bareMatch = remaining.match(/^https?:\/\/[^\s<>\]"']+/);
+      const bareMatch = remaining.match(/^https?:\/\/[^\s<>"']+/);
       if (bareMatch) {
         let url = bareMatch[0];
-        while (url.length > 0 && /[.,;:!?)\]}>"']/.test(url[url.length - 1])) {
+        const balanced = (u: string, close: string, open: string): boolean => {
+          let opens = 0, closes = 0;
+          for (const c of u) {
+            if (c === open) opens++;
+            else if (c === close) closes++;
+          }
+          return opens >= closes;
+        };
+        while (url.length > 0) {
+          const last = url[url.length - 1];
+          if (!/[.,;:!?)\]}>"']/.test(last)) break;
+          if (last === ')' && balanced(url, ')', '(')) break;
+          if (last === ']' && balanced(url, ']', '[')) break;
+          if (last === '}' && balanced(url, '}', '{')) break;
           url = url.slice(0, -1);
         }
         const safe = url.length > 0 ? sanitizeLinkUrl(url) : null;

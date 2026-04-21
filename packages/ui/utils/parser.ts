@@ -214,14 +214,20 @@ export const parseMarkdownToBlocks = (markdown: string): Block[] => {
       // `> 1. item` line would get glued onto the list-item block.
       const prevIsMarkerQuote =
         prevBlock?.type === 'blockquote' && blockMarkerRe.test(prevBlock.content);
-      if (
+      // Alerts own their body: once a blockquote is tagged as an alert,
+      // subsequent `>` lines always merge into it (until a blank line).
+      // Without this, `> [!NOTE]\n> - item` splits the list item off into
+      // a separate plain quote, losing the callout.
+      const prevIsAlert = prevBlock?.type === 'blockquote' && !!prevBlock.alertKind;
+      const shouldMergeIntoAlert = prevIsAlert && !prevLineWasBlank;
+      const shouldMergeNormal =
         !hasBlockMarker &&
         !prevIsMarkerQuote &&
         !prevLineWasBlank &&
-        prevBlock?.type === 'blockquote'
-      ) {
-        prevBlock.content = prevBlock.content
-          ? prevBlock.content + '\n' + stripped
+        prevBlock?.type === 'blockquote';
+      if (shouldMergeIntoAlert || shouldMergeNormal) {
+        prevBlock!.content = prevBlock!.content
+          ? prevBlock!.content + '\n' + stripped
           : stripped;
       } else {
         // GitHub alert marker: a blockquote whose first line is [!KIND].

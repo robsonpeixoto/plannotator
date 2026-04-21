@@ -33,7 +33,15 @@ function rewriteRelativeRefs(
   root.querySelectorAll('a').forEach((a) => {
     const href = a.getAttribute('href');
     if (!href) return;
-    if (/^(https?:|mailto:|tel:|#)/i.test(href)) return;
+    // External http(s) links: open in a new tab and close the tab-nabbing
+    // vector (opener reference back to the plannotator tab). Matches the
+    // markdown renderer's behavior for [label](https://...).
+    if (/^https?:/i.test(href)) {
+      a.setAttribute('target', '_blank');
+      a.setAttribute('rel', 'noopener noreferrer');
+      return;
+    }
+    if (/^(mailto:|tel:|#)/i.test(href)) return;
     if (onOpenLinkedDoc && /\.(mdx?|html?)(#.*)?$/i.test(href)) {
       const handler = (e: Event) => {
         e.preventDefault();

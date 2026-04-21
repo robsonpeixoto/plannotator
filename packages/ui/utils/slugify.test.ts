@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { slugifyHeading } from './slugify';
+import { slugifyHeading, buildHeadingSlugMap } from './slugify';
 
 describe('slugifyHeading', () => {
   test('lowercases plain text', () => {
@@ -40,5 +40,41 @@ describe('slugifyHeading', () => {
 
   test('returns empty string for all-symbol input', () => {
     expect(slugifyHeading('***')).toBe('');
+  });
+});
+
+describe('buildHeadingSlugMap', () => {
+  const h = (id: string, content: string) => ({ id, type: 'heading', content });
+
+  test('assigns bare slug to the first occurrence', () => {
+    const map = buildHeadingSlugMap([h('a', 'Summary')]);
+    expect(map.get('a')).toBe('summary');
+  });
+
+  test('suffixes duplicates with -1, -2, ...', () => {
+    const map = buildHeadingSlugMap([
+      h('a', 'Summary'),
+      h('b', 'Summary'),
+      h('c', 'Summary'),
+    ]);
+    expect(map.get('a')).toBe('summary');
+    expect(map.get('b')).toBe('summary-1');
+    expect(map.get('c')).toBe('summary-2');
+  });
+
+  test('skips non-heading blocks', () => {
+    const map = buildHeadingSlugMap([
+      h('a', 'Intro'),
+      { id: 'b', type: 'paragraph', content: 'Intro' },
+      h('c', 'Intro'),
+    ]);
+    expect(map.get('a')).toBe('intro');
+    expect(map.get('b')).toBeUndefined();
+    expect(map.get('c')).toBe('intro-1');
+  });
+
+  test('skips headings that slugify to empty', () => {
+    const map = buildHeadingSlugMap([h('a', '***')]);
+    expect(map.has('a')).toBe(false);
   });
 });

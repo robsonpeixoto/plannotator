@@ -1,8 +1,9 @@
-import React, { useRef, useState, useEffect, forwardRef, useImperativeHandle, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useMemo, forwardRef, useImperativeHandle, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import hljs from 'highlight.js';
 import { Block, Annotation, AnnotationType, EditorMode, type InputMethod, type ImageAttachment, type ActionsLabelMode } from '../types';
 import { Frontmatter, computeListIndices } from '../utils/parser';
+import { buildHeadingSlugMap } from '../utils/slugify';
 import { BlockRenderer } from './BlockRenderer';
 import { CodeBlock } from './blocks/CodeBlock';
 import { TableBlock } from './blocks/TableBlock';
@@ -59,7 +60,7 @@ interface ViewerProps {
   globalAttachments?: ImageAttachment[];
   onAddGlobalAttachment?: (image: ImageAttachment) => void;
   onRemoveGlobalAttachment?: (path: string) => void;
-  repoInfo?: { display: string; branch?: string } | null;
+  repoInfo?: { display: string; branch?: string; host?: string } | null;
   stickyActions?: boolean;
   onOpenLinkedDoc?: (path: string) => void;
   imageBaseDir?: string;
@@ -174,6 +175,10 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
     }
   };
   const containerRef = useRef<HTMLDivElement>(null);
+  // Per-doc heading slug map with dedup — computed once per blocks array so
+  // anchor ids stay stable across re-renders and duplicate heading texts get
+  // `-1`/`-2`/... suffixes rather than colliding on the same id.
+  const headingSlugMap = useMemo(() => buildHeadingSlugMap(blocks), [blocks]);
   const [hoveredCodeBlock, setHoveredCodeBlock] = useState<{ block: Block; element: HTMLElement } | null>(null);
   const [isCodeBlockToolbarExiting, setIsCodeBlockToolbarExiting] = useState(false);
   const [hoveredTable, setHoveredTable] = useState<{ block: Block; element: HTMLElement } | null>(null);
@@ -556,7 +561,8 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
                       onOpenLinkedDoc={onOpenLinkedDoc}
                       onToggleCheckbox={onToggleCheckbox}
                       checkboxOverrides={checkboxOverrides}
-                      githubRepo={repoInfo?.display}
+                      githubRepo={repoInfo?.host === 'github.com' ? repoInfo?.display : undefined}
+                      headingAnchorId={headingSlugMap.get(block.id)}
                     />
                   ))}
                 </div>
@@ -573,7 +579,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
               imageBaseDir={imageBaseDir}
               onImageClick={(src, alt) => setLightbox({ src, alt })}
               onOpenLinkedDoc={onOpenLinkedDoc}
-              githubRepo={repoInfo?.display}
+              githubRepo={repoInfo?.host === 'github.com' ? repoInfo?.display : undefined}
               onHover={(element) => {
                 if (tableHoverTimeoutRef.current) {
                   clearTimeout(tableHoverTimeoutRef.current);
@@ -625,7 +631,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
               isHovered={inputMethod !== 'pinpoint' && hoveredCodeBlock?.block.id === group.block.id}
             />
           ) : (
-            <BlockRenderer imageBaseDir={imageBaseDir} onImageClick={(src, alt) => setLightbox({ src, alt })} key={group.block.id} block={group.block} onOpenLinkedDoc={onOpenLinkedDoc} onToggleCheckbox={onToggleCheckbox} checkboxOverrides={checkboxOverrides} githubRepo={repoInfo?.display} />
+            <BlockRenderer imageBaseDir={imageBaseDir} onImageClick={(src, alt) => setLightbox({ src, alt })} key={group.block.id} block={group.block} onOpenLinkedDoc={onOpenLinkedDoc} onToggleCheckbox={onToggleCheckbox} checkboxOverrides={checkboxOverrides} githubRepo={repoInfo?.host === 'github.com' ? repoInfo?.display : undefined} headingAnchorId={headingSlugMap.get(group.block.id)} />
           )
         )}
 
@@ -721,7 +727,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
             imageBaseDir={imageBaseDir}
             onImageClick={(src, alt) => setLightbox({ src, alt })}
             onOpenLinkedDoc={onOpenLinkedDoc}
-            githubRepo={repoInfo?.display}
+            githubRepo={repoInfo?.host === 'github.com' ? repoInfo?.display : undefined}
           />
         )}
 
