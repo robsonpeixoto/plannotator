@@ -295,6 +295,17 @@ body {
   text-underline-offset: 2px;
 }
 
+/* While the table popout dialog is mounted, drop chrome that would
+   otherwise paint over the dialog behind it. :has() observes the dialog's
+   presence directly — no JS, no state sync. When the dialog unmounts the
+   selector stops matching and everything returns to natural stacking. */
+body:has([data-popout="true"]) [data-annotation-panel="true"],
+body:has([data-popout="true"]) [data-sticky-header-lane="true"],
+body:has([data-popout="true"]) [data-app-header="true"],
+body:has([data-popout="true"]) .os-scrollbar {
+  z-index: -1;
+}
+
 /* GitHub-style alerts: > [!NOTE] / [!TIP] / [!WARNING] / [!CAUTION] / [!IMPORTANT] */
 .alert-note      { border-left-color: #0969da; }
 .alert-note      .alert-title { color: #0969da; }

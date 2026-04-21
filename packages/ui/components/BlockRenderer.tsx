@@ -7,35 +7,7 @@ import { CodeBlock } from "./blocks/CodeBlock";
 import { HtmlBlock } from "./blocks/HtmlBlock";
 import { Callout } from "./blocks/Callout";
 import { AlertBlock } from "./blocks/AlertBlock";
-
-const parseTableContent = (
-  content: string,
-): { headers: string[]; rows: string[][] } => {
-  const lines = content.split("\n").filter((line) => line.trim());
-  if (lines.length === 0) return { headers: [], rows: [] };
-
-  const parseRow = (line: string): string[] => {
-    // Remove leading/trailing pipes, split by unescaped |, then unescape \|
-    return line
-      .replace(/^\|/, "")
-      .replace(/\|$/, "")
-      .split(/(?<!\\)\|/)
-      .map((cell) => cell.trim().replace(/\\\|/g, "|"));
-  };
-
-  const headers = parseRow(lines[0]);
-  const rows: string[][] = [];
-
-  // Skip the separator line (contains dashes) and parse data rows
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i].trim();
-    // Skip separator lines (contain only dashes, pipes, colons, spaces)
-    if (/^[\|\-:\s]+$/.test(line)) continue;
-    rows.push(parseRow(line));
-  }
-
-  return { headers, rows };
-};
+import { TableBlock } from "./blocks/TableBlock";
 
 export const BlockRenderer: React.FC<{
   block: Block;
@@ -122,38 +94,16 @@ export const BlockRenderer: React.FC<{
     case 'code':
       return <CodeBlock block={block} onHover={() => {}} onLeave={() => {}} isHovered={false} />;
 
-    case 'table': {
-      const { headers, rows } = parseTableContent(block.content);
+    case 'table':
       return (
-        <div className="my-4 overflow-x-auto" data-block-id={block.id}>
-          <table className="min-w-full border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-border">
-                {headers.map((header, i) => (
-                  <th
-                    key={i}
-                    className="px-3 py-2 text-left font-semibold text-foreground/90 bg-muted/30"
-                  >
-                    <InlineMarkdown imageBaseDir={imageBaseDir} onImageClick={onImageClick} text={header} onOpenLinkedDoc={onOpenLinkedDoc} githubRepo={githubRepo} />
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, rowIdx) => (
-                <tr key={rowIdx} className="border-b border-border/50 hover:bg-muted/20">
-                  {row.map((cell, cellIdx) => (
-                    <td key={cellIdx} className="px-3 py-2 text-foreground/80">
-                      <InlineMarkdown imageBaseDir={imageBaseDir} onImageClick={onImageClick} text={cell} onOpenLinkedDoc={onOpenLinkedDoc} githubRepo={githubRepo} />
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <TableBlock
+          block={block}
+          imageBaseDir={imageBaseDir}
+          onImageClick={onImageClick}
+          onOpenLinkedDoc={onOpenLinkedDoc}
+          githubRepo={githubRepo}
+        />
       );
-    }
 
     case 'hr':
       return <hr className="border-border/30 my-8" data-block-id={block.id} />;

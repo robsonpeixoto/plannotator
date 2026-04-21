@@ -47,6 +47,40 @@ Eight additive rendering features, zero breaking changes:
 | Emoji shortcodes | `:name:` | :rocket: :sparkles: :tada: |
 | Smart punctuation | automatic | "it's a feature" → “it’s a feature” |
 
+## Detailed feature backlog
+
+Full picture of everything landing this sprint, follow-ups, and work spilling into v0.20. Expand the popout for sort/filter.
+
+| Area | Feature | Owner | Reviewer | Priority | Status | Effort | Issue | PR | Target | Notes |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Reader | Heading anchor ids | @backnotprop | @alice | P0 | Shipped | S | #541 | #597 | v0.19 | `slugifyHeading`, unicode-safe |
+| Reader | Bare URL autolinks | @backnotprop | @alice | P0 | Shipped | S | #542 | #597 | v0.19 | Trailing punctuation trimmed |
+| Reader | GitHub alerts | @backnotprop | @bob | P0 | Shipped | M | #541 | #597 | v0.19 | Primer tokens, Octicons |
+| Reader | Directive containers | @backnotprop | @bob | P1 | Shipped | M | #541 | #597 | v0.19 | Arbitrary kinds |
+| Reader | Mentions + issue refs | @backnotprop | @alice | P0 | Shipped | S | #542 | #597 | v0.19 | GitHub-scoped when in repo |
+| Reader | Emoji shortcodes | @backnotprop | @alice | P1 | Shipped | S | #542 | #597 | v0.19 | 29 curated codes |
+| Reader | Smart punctuation | @backnotprop | @alice | P1 | Shipped | S | #542 | #597 | v0.19 | Code-span safe |
+| Reader | HTML blocks (`<details>`) | @backnotprop | @bob | P0 | Shipped | L | #489 | #597 | v0.19 | Sanitized, relative-URL rewrite |
+| Reader | Table copy (markdown) | @backnotprop | @alice | P1 | Shipped | S | #562 | #597 | v0.19 | Floating toolbar |
+| Reader | Table copy (CSV) | @backnotprop | @alice | P1 | Shipped | S | #562 | #597 | v0.19 | RFC 4180 escaping |
+| Reader | Table popout dialog | @backnotprop | @bob | P1 | Shipped | M | #563 | #597 | v0.19 | Radix Dialog, annotation-aware |
+| Reader | Table sort/filter | @alice | @backnotprop | P1 | In Progress | M | #564 | — | v0.19 | TanStack Table Phase B |
+| Reader | Table column visibility | @alice | @backnotprop | P2 | Planned | S | #565 | — | v0.19 | Phase C |
+| Reader | Table row selection | @alice | @backnotprop | P2 | Planned | M | #566 | — | v0.19 | Copy selected as CSV |
+| Reader | Footnotes (`[^1]`) | @bob | @backnotprop | P2 | Planned | L | #551 | — | v0.20 | Parser + renderer |
+| Reader | Math (`$inline$`) | @bob | @backnotprop | P3 | Backlog | XL | #552 | — | v0.21 | Pulls KaTeX ~280KB |
+| Reader | Task-list sync | @carol | @alice | P3 | Backlog | XL | #553 | — | v0.21+ | Two-way issue tracker sync |
+| Parser | Alert case-insensitive | @backnotprop | @bob | P1 | Shipped | S | #541 | #597 | v0.19 | `[!note]` works |
+| Parser | Directive edge cases | @backnotprop | @bob | P1 | Shipped | S | #541 | #597 | v0.19 | Unterminated absorbs to EOF |
+| Infra | UI typecheck wiring | @backnotprop | @alice | P0 | Shipped | S | — | #597 | v0.19 | Root-cause for review finding |
+| Infra | Annotation rehydration | @backnotprop | @alice | P1 | Shipped | S | — | #597 | v0.19 | `transformPlainText` fallback |
+| Infra | DOMPurify allowlist | @backnotprop | @bob | P1 | Shipped | S | — | #597 | v0.19 | Added `open` attribute |
+| UX | Alert styling revamp | @backnotprop | @carol | P0 | Shipped | M | #538 | #597 | v0.19 | GitHub Primer parity |
+| UX | Code Tour dialog | @rockneurotiko | @backnotprop | P1 | Shipped | XL | #569 | #569 | v0.18 | Three-page animated walkthrough |
+| Docs | Release notes draft | @backnotprop | @alice | P0 | In Progress | S | — | — | v0.19 | Highlights + breaking-ish changes |
+| Docs | Blog post — "Reader Parity" | @backnotprop | @alice | P1 | Planned | M | — | — | v0.19 | Demo video + screenshots |
+| Docs | Marketing page update | @alice | @backnotprop | P2 | Planned | M | — | — | v0.19 | New feature tiles |
+
 ## Rollout plan
 
 :::info

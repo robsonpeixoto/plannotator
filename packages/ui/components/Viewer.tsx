@@ -5,6 +5,9 @@ import { Block, Annotation, AnnotationType, EditorMode, type InputMethod, type I
 import { Frontmatter, computeListIndices } from '../utils/parser';
 import { BlockRenderer } from './BlockRenderer';
 import { CodeBlock } from './blocks/CodeBlock';
+import { TableBlock } from './blocks/TableBlock';
+import { TableToolbar } from './blocks/TableToolbar';
+import { TablePopout } from './blocks/TablePopout';
 import { ListMarker } from './ListMarker';
 import { AnnotationToolbar } from './AnnotationToolbar';
 import { FloatingQuickLabelPicker } from './FloatingQuickLabelPicker';
@@ -173,6 +176,10 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
   const containerRef = useRef<HTMLDivElement>(null);
   const [hoveredCodeBlock, setHoveredCodeBlock] = useState<{ block: Block; element: HTMLElement } | null>(null);
   const [isCodeBlockToolbarExiting, setIsCodeBlockToolbarExiting] = useState(false);
+  const [hoveredTable, setHoveredTable] = useState<{ block: Block; element: HTMLElement } | null>(null);
+  const [isTableToolbarExiting, setIsTableToolbarExiting] = useState(false);
+  const tableHoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [popoutTable, setPopoutTable] = useState<Block | null>(null);
   // Viewer-specific comment popover state (global comments + code blocks)
   const [viewerCommentPopover, setViewerCommentPopover] = useState<{
     anchorEl: HTMLElement;
@@ -559,6 +566,34 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
             <MermaidBlock key={group.block.id} block={group.block} />
           ) : group.block.type === 'code' && isGraphvizLanguage(group.block.language) ? (
             <GraphvizBlock key={group.block.id} block={group.block} />
+          ) : group.block.type === 'table' ? (
+            <TableBlock
+              key={group.block.id}
+              block={group.block}
+              imageBaseDir={imageBaseDir}
+              onImageClick={(src, alt) => setLightbox({ src, alt })}
+              onOpenLinkedDoc={onOpenLinkedDoc}
+              githubRepo={repoInfo?.display}
+              onHover={(element) => {
+                if (tableHoverTimeoutRef.current) {
+                  clearTimeout(tableHoverTimeoutRef.current);
+                  tableHoverTimeoutRef.current = null;
+                }
+                setIsTableToolbarExiting(false);
+                if (!toolbarState) {
+                  setHoveredTable({ block: group.block, element });
+                }
+              }}
+              onLeave={() => {
+                tableHoverTimeoutRef.current = setTimeout(() => {
+                  setIsTableToolbarExiting(true);
+                  setTimeout(() => {
+                    setHoveredTable(null);
+                    setIsTableToolbarExiting(false);
+                  }, 150);
+                }, 100);
+              }}
+            />
           ) : group.block.type === 'code' ? (
             <CodeBlock
               key={group.block.id}
@@ -610,6 +645,40 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
           </ToolbarErrorBoundary>
         )}
 
+        {/* Table hover toolbar */}
+        {hoveredTable && !toolbarState && (
+          <TableToolbar
+            element={hoveredTable.element}
+            markdown={hoveredTable.block.content}
+            isExiting={isTableToolbarExiting}
+            onExpand={() => {
+              setPopoutTable(hoveredTable.block);
+              setHoveredTable(null);
+              setIsTableToolbarExiting(false);
+              if (tableHoverTimeoutRef.current) {
+                clearTimeout(tableHoverTimeoutRef.current);
+                tableHoverTimeoutRef.current = null;
+              }
+            }}
+            onMouseEnter={() => {
+              if (tableHoverTimeoutRef.current) {
+                clearTimeout(tableHoverTimeoutRef.current);
+                tableHoverTimeoutRef.current = null;
+              }
+              setIsTableToolbarExiting(false);
+            }}
+            onMouseLeave={() => {
+              tableHoverTimeoutRef.current = setTimeout(() => {
+                setIsTableToolbarExiting(true);
+                setTimeout(() => {
+                  setHoveredTable(null);
+                  setIsTableToolbarExiting(false);
+                }, 150);
+              }, 100);
+            }}
+          />
+        )}
+
         {/* Code block hover toolbar */}
         {hoveredCodeBlock && !toolbarState && (
           <ToolbarErrorBoundary>
@@ -639,6 +708,21 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
             }}
           />
           </ToolbarErrorBoundary>
+        )}
+
+        {/* Table popout dialog — portaled into containerRef so annotations */}
+        {/* can walk into its text nodes the same way they do the inline table. */}
+        {popoutTable && (
+          <TablePopout
+            block={popoutTable}
+            open={!!popoutTable}
+            onClose={() => setPopoutTable(null)}
+            container={containerRef.current}
+            imageBaseDir={imageBaseDir}
+            onImageClick={(src, alt) => setLightbox({ src, alt })}
+            onOpenLinkedDoc={onOpenLinkedDoc}
+            githubRepo={repoInfo?.display}
+          />
         )}
 
         {/* Pinpoint hover overlay */}

@@ -1365,7 +1365,7 @@ const App: React.FC = () => {
       <TooltipProvider delayDuration={900} skipDelayDuration={200} disableHoverableContent>
       <div data-print-region="root" className="h-screen flex flex-col bg-background overflow-hidden">
         {/* Minimal Header */}
-        <header className="h-12 flex items-center justify-between px-2 md:px-4 border-b border-border/50 bg-card/50 backdrop-blur-xl sticky top-0 z-[50]">
+        <header data-app-header="true" className="h-12 flex items-center justify-between px-2 md:px-4 border-b border-border/50 bg-card/50 backdrop-blur-xl sticky top-0 z-[50]">
           <div className="flex items-center gap-2 md:gap-3">
             <a
               href="https://plannotator.ai"
