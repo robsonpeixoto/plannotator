@@ -8,6 +8,8 @@ section: "Getting Started"
 
 Plannotator integrates with OpenCode as an npm plugin. By default it makes `submit_plan` available to OpenCode's `plan` agent only, so OpenCode plan mode can use Plannotator without exposing the tool to `build`.
 
+If you are upgrading from an older OpenCode setup, read the [0.19.1 migration guide](/docs/guides/opencode-migration-0-19-1/) first.
+
 ## How the plugin works
 
 The OpenCode plugin (`@plannotator/opencode`) hooks into OpenCode's plugin system:

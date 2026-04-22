@@ -75,6 +75,8 @@ To configure the workflow explicitly:
 
 Use `workflow: "manual"` for commands-only mode, or `workflow: "all-agents"` to restore the legacy behavior where primary agents can call `submit_plan`. Slash commands (`/plannotator-review`, `/plannotator-annotate`, `/plannotator-last`) require the CLI to be installed separately via the install script.
 
+If you are upgrading from an older OpenCode install, see the [OpenCode 0.19.1 migration guide](/docs/guides/opencode-migration-0-19-1/).
+
 ## Plan saving
 
 Approved and denied plans are saved to `~/.plannotator/plans/` by default. You can change the save directory or disable saving in the Plannotator UI settings (gear icon).
