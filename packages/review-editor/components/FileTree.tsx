@@ -1,8 +1,9 @@
 import React, { useEffect, useCallback, useState, useMemo } from 'react';
 import { CodeAnnotation } from '@plannotator/ui/types';
-import type { DiffOption, WorktreeInfo } from '@plannotator/shared/types';
+import type { AvailableBranches, DiffOption, WorktreeInfo } from '@plannotator/shared/types';
 import { buildFileTree, getAncestorPaths, getAllFolderPaths } from '../utils/buildFileTree';
 import { FileTreeNodeItem } from './FileTreeNode';
+import { BaseBranchPicker } from './BaseBranchPicker';
 import { getReviewSearchSideLabel, type ReviewSearchFileGroup, type ReviewSearchMatch } from '../utils/reviewSearch';
 import type { DiffFile } from '../types';
 import { OverlayScrollArea } from '@plannotator/ui/components/OverlayScrollArea';
@@ -27,6 +28,11 @@ interface FileTreeProps {
   activeWorktreePath?: string | null;
   onSelectWorktree?: (path: string | null) => void;
   currentBranch?: string;
+  /** Base-branch picker — only meaningful when activeDiffType is "branch" or "merge-base". */
+  availableBranches?: AvailableBranches;
+  selectedBase?: string;
+  detectedBase?: string;
+  onSelectBase?: (branch: string) => void;
   stagedFiles?: Set<string>;
   onCopyRawDiff?: () => void;
   canCopyRawDiff?: boolean;
@@ -66,6 +72,10 @@ export const FileTree: React.FC<FileTreeProps> = ({
   activeWorktreePath,
   onSelectWorktree,
   currentBranch,
+  availableBranches,
+  selectedBase,
+  detectedBase,
+  onSelectBase,
   stagedFiles,
   onCopyRawDiff,
   canCopyRawDiff = false,
@@ -330,11 +340,21 @@ export const FileTree: React.FC<FileTreeProps> = ({
                 disabled={isLoadingDiff}
                 className="w-full px-2.5 py-1.5 bg-muted rounded text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 cursor-pointer disabled:opacity-50 disabled:cursor-wait appearance-none pr-7"
               >
-                {diffOptions.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.label}
-                  </option>
-                ))}
+                {diffOptions.map((option) => {
+                  // When a base picker is wired up, strip branch names from these labels —
+                  // the branch belongs in the picker, not here.
+                  const hasBasePicker = !!onSelectBase && !!availableBranches;
+                  let label = option.label;
+                  if (hasBasePicker) {
+                    if (option.id === 'branch') label = 'Branch diff';
+                    else if (option.id === 'merge-base') label = 'PR Diff';
+                  }
+                  return (
+                    <option key={option.id} value={option.id}>
+                      {label}
+                    </option>
+                  );
+                })}
               </select>
               <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">
                 {isLoadingDiff ? (
@@ -352,6 +372,28 @@ export const FileTree: React.FC<FileTreeProps> = ({
           )}
         </div>
       )}
+
+      {/* Base-branch picker — only relevant for branch / merge-base diff types */}
+      {onSelectBase &&
+        selectedBase &&
+        detectedBase &&
+        availableBranches &&
+        (activeDiffType === 'branch' || activeDiffType === 'merge-base') && (
+          <div className="px-2 py-1.5 border-b border-border/30 flex items-center gap-2">
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground flex-shrink-0">
+              compare against
+            </span>
+            <div className="flex-1 min-w-0">
+              <BaseBranchPicker
+                availableBranches={availableBranches}
+                selectedBase={selectedBase}
+                detectedBase={detectedBase}
+                onSelectBase={onSelectBase}
+                disabled={isLoadingDiff}
+              />
+            </div>
+          </div>
+        )}
 
       {/* File tree or search results */}
       <OverlayScrollArea className="flex-1 min-h-0">

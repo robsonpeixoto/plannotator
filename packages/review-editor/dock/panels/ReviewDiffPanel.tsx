@@ -57,6 +57,7 @@ export const ReviewDiffPanel: React.FC<IDockviewPanelProps> = (props) => {
         patch={file.patch}
         filePath={file.path}
         oldPath={file.oldPath}
+        reviewBase={state.reviewBase}
         isFocused={isFocusedFile}
         diffStyle={state.diffStyle}
         diffOverflow={state.diffOverflow}

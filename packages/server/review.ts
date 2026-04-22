@@ -12,6 +12,7 @@
 import { isRemoteSession, getServerHostname, getServerPort } from "./remote";
 import type { Origin } from "@plannotator/shared/agents";
 import { type DiffType, type GitContext, runVcsDiff, getVcsFileContentsForDiff, canStageFiles, stageFile, unstageFile, resolveVcsCwd, validateFilePath } from "./vcs";
+import { resolveBaseBranch } from "@plannotator/shared/review-core";
 import { getRepoInfo } from "./repo";
 import { handleImage, handleUpload, handleAgents, handleServerReady, handleDraftSave, handleDraftLoad, handleDraftDelete, handleFavicon, type OpencodeClient } from "./shared-handlers";
 import { contentHash, deleteDraft } from "./draft";
@@ -434,7 +435,7 @@ export async function startReviewServer(
               );
             }
             try {
-              const body = (await req.json()) as { diffType: DiffType };
+              const body = (await req.json()) as { diffType: DiffType; base?: string };
               let newDiffType = body.diffType;
 
               if (!newDiffType) {
@@ -444,11 +445,12 @@ export async function startReviewServer(
                 );
               }
 
-              const defaultBranch = gitContext?.defaultBranch || "main";
+              const detectedBase = gitContext?.defaultBranch || "main";
+              const base = resolveBaseBranch(body.base, gitContext?.availableBranches, detectedBase);
               const defaultCwd = gitContext?.cwd;
 
               // Run the new diff
-              const result = await runVcsDiff(newDiffType, defaultBranch, defaultCwd);
+              const result = await runVcsDiff(newDiffType, base, defaultCwd);
 
               // Update state
               currentPatch = result.patch;
@@ -505,11 +507,16 @@ export async function startReviewServer(
 
             // Local review: read file contents from local git
             if (hasLocalAccess) {
-              const defaultBranch = gitContext?.defaultBranch || "main";
+              const detectedBase = gitContext?.defaultBranch || "main";
+              const base = resolveBaseBranch(
+                url.searchParams.get("base") ?? undefined,
+                gitContext?.availableBranches,
+                detectedBase,
+              );
               const defaultCwd = gitContext?.cwd;
               const result = await getVcsFileContentsForDiff(
                 currentDiffType,
-                defaultBranch,
+                base,
                 filePath,
                 oldPath,
                 defaultCwd,

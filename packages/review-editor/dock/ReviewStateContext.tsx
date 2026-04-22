@@ -26,6 +26,8 @@ export interface ReviewState {
   disableBackground?: boolean;
   fontFamily?: string;
   fontSize?: string;
+  /** User-selected base branch; feeds the `base` query param on file-content fetches. */
+  reviewBase?: string;
 
   // Annotations
   allAnnotations: CodeAnnotation[];

@@ -31,6 +31,7 @@ import {
 	gitAddFile as gitAddFileCore,
 	gitResetFile as gitResetFileCore,
 	parseWorktreeDiffType,
+	resolveBaseBranch,
 	type ReviewGitRuntime,
 	runGitDiff as runGitDiffCore,
 	validateFilePath,
@@ -503,9 +504,14 @@ export async function startReviewServer(options: {
 					json(res, { error: "Missing diffType" }, 400);
 					return;
 				}
-				const defaultBranch = options.gitContext?.defaultBranch || "main";
+				const detectedBase = options.gitContext?.defaultBranch || "main";
+				const base = resolveBaseBranch(
+					typeof body.base === "string" ? body.base : undefined,
+					options.gitContext?.availableBranches,
+					detectedBase,
+				);
 				const defaultCwd = options.gitContext?.cwd;
-				const result = await runGitDiff(newType, defaultBranch, defaultCwd);
+				const result = await runGitDiff(newType, base, defaultCwd);
 				currentPatch = result.patch;
 				currentGitRef = result.label;
 				currentDiffType = newType;
@@ -613,12 +619,17 @@ export async function startReviewServer(options: {
 
 			// Local mode first (matches Bun server priority)
 			if (hasLocalAccess && !isPRMode) {
-				const defaultBranch = options.gitContext?.defaultBranch || "main";
+				const detectedBase = options.gitContext?.defaultBranch || "main";
+				const base = resolveBaseBranch(
+					url.searchParams.get("base") ?? undefined,
+					options.gitContext?.availableBranches,
+					detectedBase,
+				);
 				const defaultCwd = options.gitContext?.cwd;
 				const result = await getFileContentsForDiffCore(
 					reviewRuntime,
 					currentDiffType,
-					defaultBranch,
+					base,
 					filePath,
 					oldPath,
 					defaultCwd,

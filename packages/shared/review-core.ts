@@ -29,11 +29,17 @@ export interface WorktreeInfo {
   head: string;
 }
 
+export interface AvailableBranches {
+  local: string[];
+  remote: string[];
+}
+
 export interface GitContext {
   currentBranch: string;
   defaultBranch: string;
   diffOptions: DiffOption[];
   worktrees: WorktreeInfo[];
+  availableBranches: AvailableBranches;
   cwd?: string;
   vcsType?: "git" | "p4";
 }
@@ -91,6 +97,76 @@ export async function getDefaultBranch(
   return "master";
 }
 
+export async function listBranches(
+  runtime: ReviewGitRuntime,
+  cwd?: string,
+): Promise<AvailableBranches> {
+  // Emit `<full-refname>\t<short-name>` so we can classify by ref prefix
+  // without guessing from the short form — local branches can contain `/`
+  // (e.g. `feature/foo`), so `name.includes("/")` would misclassify them.
+  const result = await runtime.runGit(
+    [
+      "for-each-ref",
+      "--format=%(refname)\t%(refname:short)",
+      "refs/heads",
+      "refs/remotes",
+    ],
+    { cwd },
+  );
+  if (result.exitCode !== 0) return { local: [], remote: [] };
+
+  const local: string[] = [];
+  const remote: string[] = [];
+  const localSet = new Set<string>();
+
+  for (const line of result.stdout.split("\n")) {
+    const [fullRef, shortName] = line.split("\t");
+    if (!fullRef || !shortName) continue;
+    if (shortName.endsWith("/HEAD")) continue;
+    if (fullRef.startsWith("refs/heads/")) {
+      local.push(shortName);
+      localSet.add(shortName);
+    } else if (fullRef.startsWith("refs/remotes/")) {
+      remote.push(shortName);
+    }
+  }
+
+  // Dedupe `origin/foo` when local `foo` exists — the local ref is what users
+  // pick. Remotes without a local counterpart stay.
+  const dedupedRemote = remote.filter((r) => {
+    const slash = r.indexOf("/");
+    const stripped = slash !== -1 ? r.slice(slash + 1) : r;
+    return !localSet.has(stripped);
+  });
+
+  local.sort();
+  dedupedRemote.sort();
+
+  return { local, remote: dedupedRemote };
+}
+
+/**
+ * Pick a safe base branch. If the user-supplied value doesn't appear in the
+ * repo's known branch list, fall back to the detected default. Shared by
+ * Bun (`review.ts`) and Pi (`serverReview.ts`) so both runtimes validate the
+ * same way.
+ */
+export function resolveBaseBranch(
+  requested: string | undefined,
+  available: AvailableBranches | undefined,
+  detected: string,
+): string {
+  if (!requested) return detected;
+  if (!available) return requested;
+  const flat = [...available.local, ...available.remote];
+  if (flat.includes(requested)) return requested;
+  // Accept `origin/foo` when user typed it but only the local `foo` is tracked.
+  const slash = requested.indexOf("/");
+  const stripped = slash !== -1 ? requested.slice(slash + 1) : requested;
+  if (flat.includes(stripped)) return stripped;
+  return detected;
+}
+
 export async function getWorktrees(
   runtime: ReviewGitRuntime,
   cwd?: string,
@@ -137,9 +213,10 @@ export async function getGitContext(
   runtime: ReviewGitRuntime,
   cwd?: string,
 ): Promise<GitContext> {
-  const [currentBranch, defaultBranch] = await Promise.all([
+  const [currentBranch, defaultBranch, availableBranches] = await Promise.all([
     getCurrentBranch(runtime, cwd),
     getDefaultBranch(runtime, cwd),
+    listBranches(runtime, cwd),
   ]);
 
   const diffOptions: DiffOption[] = [
@@ -169,6 +246,7 @@ export async function getGitContext(
     defaultBranch,
     diffOptions,
     worktrees: worktrees.filter((wt) => wt.path !== currentTreePath),
+    availableBranches,
     cwd,
   };
 }
