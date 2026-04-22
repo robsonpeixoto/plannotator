@@ -504,15 +504,13 @@ export function useAnnotationHighlighter({
 
     // Mobile bridge — install once per highlighter lifetime on touch
     // devices, and honor the CURRENT read-only state at event time via
-    // readOnlyRef. Gating at install time would either strand a stale
-    // listener when the room transitions unlocked → locked, or never
-    // install one if the room started locked and later unlocked (forcing
-    // a remount to recover touch-selection annotation).
+    // readOnlyRef. Gating at install time would strand the listener
+    // across any mid-lifetime readOnly flip.
     const isTouchPrimary = window.matchMedia('(pointer: coarse)').matches;
     let selectionTimer: ReturnType<typeof setTimeout>;
     const handleSelectionChange = isTouchPrimary
       ? () => {
-          // Checked on every event so lock-state transitions take effect
+          // Checked on every event so readOnly flips take effect
           // immediately without re-init churn. Avoids the mark-then-remove
           // flicker that would result if we let the CREATE handler do the
           // clean-up after a fromRange() was forwarded.

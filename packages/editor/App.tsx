@@ -107,10 +107,10 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
     roomModeActive ? '' : DEMO_PLAN_CONTENT,
   );
 
-  // Room admin actions: lock / unlock / delete. Pending + error state
-  // live here (not in `RoomApp`) because the controls render in the
-  // editor header alongside everything else App owns. The error slot
-  // is surfaced via a toast at the bottom of the layout.
+  // Room admin action (delete). Pending + error state live here (not
+  // in `RoomApp`) because the control renders in the editor header
+  // alongside everything else App owns. The error slot is surfaced
+  // via a toast at the bottom of the layout.
   const roomAdmin = useRoomAdminActions(roomSession?.room);
 
   // Stripped-image handoff count from the creator-origin fragment
@@ -1748,7 +1748,7 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
 
             {/*
               Room mode cluster: conditional status pill (only when
-              state is non-default — locked / reconnecting / offline),
+              state is non-default — reconnecting / offline / deleted),
               peer avatar bubbles, and a Room actions dropdown. Sits
               between the approve/deny area (hidden in room mode) and
               the annotations-panel toggle. Replaces the previous
@@ -2270,9 +2270,10 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
         {/*
           Room admin error toast — bottom-right, separated from the
           top-right `noteSaveToast` slot so a transient "link copied"
-          success doesn't stomp a "Lock failed" that still needs the
-          user's eyes. Provides a Dismiss button; auto-dismisses
-          after 8s so it doesn't stick around indefinitely.
+          success doesn't stomp a "Failed to delete room" that still
+          needs the user's eyes. Provides a Dismiss button;
+          auto-dismisses after 8s so it doesn't stick around
+          indefinitely.
         */}
         {roomAdmin.error && (
           <RoomAdminErrorToast

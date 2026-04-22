@@ -235,7 +235,7 @@ describe('useRoomAnnotationController', () => {
   });
 
   test('admin-scoped errors do NOT trip mutation pending → failed', async () => {
-    // A failed lock/unlock/delete (admin scope) must not mark racing
+    // A failed admin-scope command (e.g. delete) must not mark racing
     // annotation sends as failed. The controller filters by scope.
     const m = mockRoom({ seq: 1 });
     const { result, rerender } = renderHook(

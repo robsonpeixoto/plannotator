@@ -172,8 +172,8 @@ export function useRoomAnnotationController(
   //
   // V1 has no opId-correlated reject: a rejected mutation produces a
   // `room.error` on the client, with no seq advance and no per-op
-  // correlation. Without an explicit clear path, a rejection (e.g.
-  // lock-during-submit at apps/room-service/core/room-do.ts:377) would
+  // correlation. Without an explicit clear path, a server-side
+  // rejection (e.g. a validation_error or event_persist_failed) would
   // leave `add` pending forever (never echoed) and `update`/`remove`
   // pending until some unrelated op bumped seq.
   //

@@ -80,7 +80,7 @@ export interface CollabRoomState {
    *                ops to failed. This is the ONLY scope that does so.
    *   'admin'    — admin-command rejection. Consumed by
    *                CollabRoomClient.pendingAdmin; never affects pending
-   *                mutations (a failed lock must not fail a racing add).
+   *                mutations (a failed admin command must not fail a racing add).
    *   'event'    — inbound event from another participant failed to
    *                decode locally (malformed payload, decrypt failure,
    *                reducer rejection). Not a rejection of OUR state.
