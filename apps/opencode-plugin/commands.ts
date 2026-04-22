@@ -21,22 +21,12 @@ import {
 import { getGitContext, runGitDiffWithContext } from "@plannotator/server/git";
 import { parsePRUrl, checkPRAuth, fetchPR, getCliName, getMRLabel, getMRNumberLabel, getDisplayRepo } from "@plannotator/server/pr";
 import { loadConfig, resolveDefaultDiffType, resolveUseJina } from "@plannotator/shared/config";
-import { resolveMarkdownFile, hasMarkdownFiles } from "@plannotator/shared/resolve-file";
+import { resolveMarkdownFile, resolveUserPath, hasMarkdownFiles } from "@plannotator/shared/resolve-file";
 import { FILE_BROWSER_EXCLUDED } from "@plannotator/shared/reference-common";
 import { htmlToMarkdown } from "@plannotator/shared/html-to-markdown";
 import { urlToMarkdown } from "@plannotator/shared/url-to-markdown";
 import { statSync } from "fs";
 import path from "path";
-
-function resolveLocalAnnotatePath(input: string, projectRoot: string): string {
-  const trimmed = input.trim();
-  const unquoted =
-    trimmed.length >= 2
-      && ((trimmed.startsWith("\"") && trimmed.endsWith("\"")) || (trimmed.startsWith("'") && trimmed.endsWith("'")))
-      ? trimmed.slice(1, -1)
-      : trimmed;
-  return path.resolve(projectRoot, unquoted);
-}
 
 /** Shared dependencies injected by the plugin */
 export interface CommandDeps {
@@ -196,7 +186,7 @@ export async function handleAnnotateCommand(
     sourceInfo = filePath;
   } else {
     const projectRoot = directory || process.cwd();
-    const resolvedArg = resolveLocalAnnotatePath(filePath, projectRoot);
+    const resolvedArg = resolveUserPath(filePath, projectRoot);
 
     let isFolder = false;
     try {
