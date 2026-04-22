@@ -208,54 +208,15 @@ describe('validateAdminCommandEnvelope — strips extra fields (P2)', () => {
     clientId: 'client',
     adminProof: 'proof',
   };
-  test('room.unlock strips extras from command', () => {
-    const r = validateAdminCommandEnvelope({
-      ...validBase,
-      command: { type: 'room.unlock', extra: 'smuggled', maliciousField: 42 },
-    });
-    expect(isValidationError(r)).toBe(false);
-    if (!isValidationError(r)) {
-      expect(r.command).toEqual({ type: 'room.unlock' });
-      expect(Object.keys(r.command)).toEqual(['type']);
-    }
-  });
   test('room.delete strips extras from command', () => {
     const r = validateAdminCommandEnvelope({
       ...validBase,
-      command: { type: 'room.delete', piggyback: 'value' },
+      command: { type: 'room.delete', piggyback: 'value', extra: 'smuggled' },
     });
     expect(isValidationError(r)).toBe(false);
     if (!isValidationError(r)) {
       expect(r.command).toEqual({ type: 'room.delete' });
-    }
-  });
-  test('room.lock without snapshot strips extras', () => {
-    const r = validateAdminCommandEnvelope({
-      ...validBase,
-      command: { type: 'room.lock', unexpected: 'junk' },
-    });
-    expect(isValidationError(r)).toBe(false);
-    if (!isValidationError(r)) {
-      expect(r.command).toEqual({ type: 'room.lock' });
-    }
-  });
-  test('room.lock with snapshot keeps exactly the two snapshot fields', () => {
-    const r = validateAdminCommandEnvelope({
-      ...validBase,
-      command: {
-        type: 'room.lock',
-        finalSnapshotCiphertext: 'ct',
-        finalSnapshotAtSeq: 5,
-        extra: 'ignored',
-      },
-    });
-    expect(isValidationError(r)).toBe(false);
-    if (!isValidationError(r) && r.command.type === 'room.lock') {
-      expect(r.command).toEqual({
-        type: 'room.lock',
-        finalSnapshotCiphertext: 'ct',
-        finalSnapshotAtSeq: 5,
-      });
+      expect(Object.keys(r.command)).toEqual(['type']);
     }
   });
   test('rejects unknown command type', () => {
@@ -270,7 +231,7 @@ describe('validateAdminCommandEnvelope — strips extra fields (P2)', () => {
     const r = validateAdminCommandEnvelope({
       ...validBase,
       adminProof: 'x'.repeat(129),
-      command: { type: 'room.unlock' },
+      command: { type: 'room.delete' },
     });
     expect(isValidationError(r)).toBe(true);
     if (isValidationError(r)) expect(r.error).toMatch(/adminProof/);
@@ -280,7 +241,7 @@ describe('validateAdminCommandEnvelope — strips extra fields (P2)', () => {
     const r = validateAdminCommandEnvelope({
       ...validBase,
       challengeId: 'x'.repeat(65),
-      command: { type: 'room.unlock' },
+      command: { type: 'room.delete' },
     });
     expect(isValidationError(r)).toBe(true);
     if (isValidationError(r)) expect(r.error).toMatch(/challengeId/);
@@ -290,7 +251,7 @@ describe('validateAdminCommandEnvelope — strips extra fields (P2)', () => {
     const r = validateAdminCommandEnvelope({
       ...validBase,
       clientId: 'x'.repeat(65),
-      command: { type: 'room.unlock' },
+      command: { type: 'room.delete' },
     });
     expect(isValidationError(r)).toBe(true);
     if (isValidationError(r)) expect(r.error).toMatch(/clientId/);

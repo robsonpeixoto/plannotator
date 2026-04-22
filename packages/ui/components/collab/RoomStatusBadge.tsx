@@ -7,7 +7,7 @@ import type { RoomStatus } from '@plannotator/shared/collab';
  * shows a single summary label to the user. No side effects; identity
  * driven entirely by props so memoization is trivial.
  *
- * Priority (highest wins): roomStatus === 'deleted' > 'expired' > 'locked' >
+ * Priority (highest wins): roomStatus === 'deleted' > 'expired' >
  * connectionStatus ('reconnecting' / 'connecting' / 'authenticating' /
  * 'disconnected' / 'closed') > default 'Live'.
  */
@@ -34,9 +34,6 @@ function deriveVariant(
   }
   if (roomStatus === 'expired') {
     return { label: 'Expired', dotClass: 'bg-muted-foreground', pillClass: 'bg-muted text-muted-foreground' };
-  }
-  if (roomStatus === 'locked') {
-    return { label: 'Locked', dotClass: 'bg-warning', pillClass: 'bg-warning/10 text-warning' };
   }
   if (connectionStatus === 'reconnecting') {
     return { label: 'Reconnecting', dotClass: 'bg-warning animate-pulse', pillClass: 'bg-warning/10 text-warning' };

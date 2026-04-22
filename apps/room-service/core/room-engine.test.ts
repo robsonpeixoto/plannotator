@@ -80,74 +80,30 @@ describe('validateServerEnvelope', () => {
 // ---------------------------------------------------------------------------
 
 describe('validateAdminCommandEnvelope', () => {
-  const validLock = {
+  const validDelete = {
     type: 'admin.command',
     challengeId: 'ch_abc',
     clientId: 'client-1',
-    command: { type: 'room.lock' },
+    command: { type: 'room.delete' },
     adminProof: 'proof-data',
   };
 
-  test('accepts valid lock command', () => {
-    const result = validateAdminCommandEnvelope(validLock);
-    expect(isValidationError(result)).toBe(false);
-  });
-
-  test('accepts valid unlock command', () => {
-    const result = validateAdminCommandEnvelope({ ...validLock, command: { type: 'room.unlock' } });
-    expect(isValidationError(result)).toBe(false);
-  });
-
   test('accepts valid delete command', () => {
-    const result = validateAdminCommandEnvelope({ ...validLock, command: { type: 'room.delete' } });
+    const result = validateAdminCommandEnvelope(validDelete);
     expect(isValidationError(result)).toBe(false);
-  });
-
-  test('accepts lock with snapshot pair', () => {
-    const result = validateAdminCommandEnvelope({
-      ...validLock,
-      command: { type: 'room.lock', finalSnapshotCiphertext: 'encrypted', finalSnapshotAtSeq: 5 },
-    });
-    expect(isValidationError(result)).toBe(false);
-  });
-
-  test('rejects lock with ciphertext but no atSeq', () => {
-    const result = validateAdminCommandEnvelope({
-      ...validLock,
-      command: { type: 'room.lock', finalSnapshotCiphertext: 'encrypted' },
-    });
-    expect(isValidationError(result)).toBe(true);
-    expect((result as ValidationError).error).toContain('both present or both absent');
-  });
-
-  test('rejects lock with atSeq but no ciphertext', () => {
-    const result = validateAdminCommandEnvelope({
-      ...validLock,
-      command: { type: 'room.lock', finalSnapshotAtSeq: 5 },
-    });
-    expect(isValidationError(result)).toBe(true);
-  });
-
-  test('rejects oversized snapshot in lock', () => {
-    const result = validateAdminCommandEnvelope({
-      ...validLock,
-      command: { type: 'room.lock', finalSnapshotCiphertext: 'x'.repeat(1_500_001), finalSnapshotAtSeq: 5 },
-    });
-    expect(isValidationError(result)).toBe(true);
-    expect((result as ValidationError).status).toBe(413);
   });
 
   test('rejects unknown command type', () => {
-    expect(isValidationError(validateAdminCommandEnvelope({ ...validLock, command: { type: 'room.explode' } }))).toBe(true);
+    expect(isValidationError(validateAdminCommandEnvelope({ ...validDelete, command: { type: 'room.explode' } }))).toBe(true);
   });
 
   test('rejects missing challengeId', () => {
-    const { challengeId: _, ...rest } = validLock;
+    const { challengeId: _, ...rest } = validDelete;
     expect(isValidationError(validateAdminCommandEnvelope(rest))).toBe(true);
   });
 
   test('rejects missing adminProof', () => {
-    const { adminProof: _, ...rest } = validLock;
+    const { adminProof: _, ...rest } = validDelete;
     expect(isValidationError(validateAdminCommandEnvelope(rest))).toBe(true);
   });
 });

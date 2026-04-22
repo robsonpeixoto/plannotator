@@ -161,7 +161,7 @@ without posting.
 
 - **Never run as admin.** The CLI strips any `#admin=<secret>`
   fragment from the URL by default and warns on stderr. There is
-  no opt-in flag. Agents do not perform lock / unlock / delete.
+  no opt-in flag. Agents do not perform delete.
 - **No image attachments.** V1 room annotations do not carry
   images. If you need to share an image, the flow is via the
   local editor's import path, not via the agent CLI.
@@ -185,6 +185,5 @@ without posting.
   in the current plan. Run `comment --list-blocks` to see the
   valid set; re-run with a matching id.
 - **`<code>: <message>`** on a comment — server-side mutation
-  rejection. The most common cause is `room_locked` (an admin
-  locked the room; read-only mode). Wait and retry or target a
-  different room.
+  rejection. The message names the reason; wait and retry or
+  target a different room.

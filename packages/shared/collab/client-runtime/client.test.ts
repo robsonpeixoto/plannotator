@@ -395,16 +395,16 @@ describe('CollabRoomClient — presence', () => {
 });
 
 describe('CollabRoomClient — admin', () => {
-  test('lockRoom without admin rejects', async () => {
+  test('deleteRoom without admin rejects', async () => {
     const { client } = await setup(); // no admin
-    await expect(client.lockRoom()).rejects.toThrow(AdminNotAuthorizedError);
+    await expect(client.deleteRoom()).rejects.toThrow(AdminNotAuthorizedError);
     client.disconnect();
   });
 
-  test('lockRoom sends challenge.request, then admin.command with proof, resolves on room.status: locked', async () => {
+  test('deleteRoom sends challenge.request, then admin.command with proof, resolves on room.status: deleted', async () => {
     const { client, ws } = await setup({ withAdmin: true });
 
-    const lockPromise = client.lockRoom();
+    const deletePromise = client.deleteRoom();
 
     // Client sends admin.challenge.request
     const req = await ws.peer.expectFromClient();
@@ -423,22 +423,22 @@ describe('CollabRoomClient — admin', () => {
     const cmdMsg = await ws.peer.expectFromClient();
     const cmd = JSON.parse(cmdMsg) as AdminCommandEnvelope;
     expect(cmd.type).toBe('admin.command');
-    expect(cmd.command.type).toBe('room.lock');
+    expect(cmd.command.type).toBe('room.delete');
     expect(cmd.challengeId).toBe(adminChallenge.challengeId);
     expect(cmd.adminProof.length).toBeGreaterThan(0);
 
-    // Server broadcasts room.status: locked
-    ws.peer.sendFromServer(JSON.stringify({ type: 'room.status', status: 'locked' }));
+    // Server broadcasts room.status: deleted
+    ws.peer.sendFromServer(JSON.stringify({ type: 'room.status', status: 'deleted' }));
 
-    await lockPromise; // resolves on observed effect
-    expect(client.getState().roomStatus).toBe('locked');
+    await deletePromise; // resolves on observed effect
+    expect(client.getState().roomStatus).toBe('deleted');
     client.disconnect();
   });
 
   test('admin command rejects on room.error', async () => {
     const { client, ws } = await setup({ withAdmin: true });
 
-    const lockPromise = client.lockRoom();
+    const deletePromise = client.deleteRoom();
     await ws.peer.expectFromClient(); // admin.challenge.request
 
     const adminChallenge: AdminChallenge = {
@@ -454,10 +454,10 @@ describe('CollabRoomClient — admin', () => {
     ws.peer.sendFromServer(JSON.stringify({
       type: 'room.error',
       code: 'invalid_state',
-      message: 'Cannot lock',
+      message: 'Cannot delete',
     }));
 
-    await expect(lockPromise).rejects.toThrow(AdminRejectedError);
+    await expect(deletePromise).rejects.toThrow(AdminRejectedError);
     client.disconnect();
   });
 
@@ -469,7 +469,7 @@ describe('CollabRoomClient — admin', () => {
     for (const code of ['client_id_mismatch', 'no_admin_challenge']) {
       const { client, ws } = await setup({ withAdmin: true });
 
-      const lockPromise = client.lockRoom();
+      const deletePromise = client.deleteRoom();
       await ws.peer.expectFromClient(); // admin.challenge.request
 
       const start = Date.now();
@@ -479,7 +479,7 @@ describe('CollabRoomClient — admin', () => {
         message: `Server rejected: ${code}`,
       }));
 
-      await expect(lockPromise).rejects.toThrow(AdminRejectedError);
+      await expect(deletePromise).rejects.toThrow(AdminRejectedError);
       const elapsed = Date.now() - start;
       // Must reject immediately (within a few ms), not at the 5s admin timeout.
       expect(elapsed).toBeLessThan(500);
@@ -509,7 +509,7 @@ describe('CollabRoomClient — admin', () => {
     for (const code of ADMIN_ERROR_CODES) {
       const { client, ws } = await setup({ withAdmin: true });
 
-      const lockPromise = client.lockRoom();
+      const deletePromise = client.deleteRoom();
       await ws.peer.expectFromClient(); // admin.challenge.request
 
       const start = Date.now();
@@ -519,7 +519,7 @@ describe('CollabRoomClient — admin', () => {
         message: `Server rejected: ${code}`,
       }));
 
-      await expect(lockPromise).rejects.toThrow(AdminRejectedError);
+      await expect(deletePromise).rejects.toThrow(AdminRejectedError);
       // Reject immediately, not via 5s admin timeout.
       expect(Date.now() - start).toBeLessThan(500);
 
@@ -527,15 +527,15 @@ describe('CollabRoomClient — admin', () => {
     }
   });
 
-  test('non-admin room.error (e.g. room_locked from event channel) does NOT reject pending admin', async () => {
+  test('non-admin room.error (e.g. validation_error from event channel) does NOT reject pending admin', async () => {
     // Regression: previously ANY room.error rejected the pending admin
     // command. But room.error is also used for event-channel failures
-    // (room_locked, validation_error). If one of those lands while a lock
-    // command is in flight, we must NOT cancel the lock — its
-    // room.status: locked may still be on the way.
+    // (validation_error, event_persist_failed). If one of those lands
+    // while a delete command is in flight, we must NOT cancel the
+    // delete — its room.status: deleted may still be on the way.
     const { client, ws } = await setup({ withAdmin: true });
 
-    const lockPromise = client.lockRoom();
+    const deletePromise = client.deleteRoom();
     await ws.peer.expectFromClient(); // admin.challenge.request
     const adminChallenge: AdminChallenge = {
       type: 'admin.challenge',
@@ -550,51 +550,18 @@ describe('CollabRoomClient — admin', () => {
     // pendingAdmin must stay alive.
     ws.peer.sendFromServer(JSON.stringify({
       type: 'room.error',
-      code: 'room_locked',
-      message: 'Room is locked — annotation operations are not allowed',
+      code: 'validation_error',
+      message: 'Malformed annotation payload',
     }));
     // Give the error a tick to land.
     await new Promise(r => setTimeout(r, 20));
 
-    // The actual admin status broadcast arrives now — lock should resolve.
-    ws.peer.sendFromServer(JSON.stringify({ type: 'room.status', status: 'locked' }));
-    await lockPromise;  // resolves (does NOT reject)
+    // The actual admin status broadcast arrives now — delete should resolve.
+    ws.peer.sendFromServer(JSON.stringify({ type: 'room.status', status: 'deleted' }));
+    await deletePromise;  // resolves (does NOT reject)
 
     // lastError was still set by the event-channel error for UI consumers.
-    expect(client.getState().lastError?.code).toBe('room_locked');
-    client.disconnect();
-  });
-
-  test('lockRoom with finalSnapshot includes ciphertext and atSeq', async () => {
-    const { client, ws, eventKey } = await setup({ withAdmin: true });
-    const finalSnapshot: RoomSnapshot = {
-      versionId: 'v1',
-      planMarkdown: '# Final',
-      annotations: [],
-    };
-
-    // New API: snapshot + seq supplied together and must match client.seq.
-    const lockPromise = client.lockRoom({ finalSnapshot, finalSnapshotSeq: client.getState().seq });
-    await ws.peer.expectFromClient(); // challenge request
-
-    const adminChallenge: AdminChallenge = {
-      type: 'admin.challenge',
-      challengeId: generateChallengeId(),
-      nonce: generateNonce(),
-      expiresAt: Date.now() + 30_000,
-    };
-    ws.peer.sendFromServer(JSON.stringify(adminChallenge));
-
-    const cmdMsg = await ws.peer.expectFromClient();
-    const cmd = JSON.parse(cmdMsg) as AdminCommandEnvelope;
-    expect(cmd.command.type).toBe('room.lock');
-    if (cmd.command.type === 'room.lock') {
-      expect(cmd.command.finalSnapshotCiphertext).toBeDefined();
-      expect(cmd.command.finalSnapshotAtSeq).toBe(0);
-    }
-
-    ws.peer.sendFromServer(JSON.stringify({ type: 'room.status', status: 'locked' }));
-    await lockPromise;
+    expect(client.getState().lastError?.code).toBe('validation_error');
     client.disconnect();
   });
 });
@@ -665,51 +632,6 @@ describe('CollabRoomClient — initial connect timeout', () => {
 
     expect(client.getState().connectionStatus).toBe('disconnected');
     expect(constructed.length).toBe(1);  // no auto-reconnect attempt
-  });
-});
-
-describe('CollabRoomClient — locked room rejects annotation sends', () => {
-  test('sendAnnotationAdd in locked room throws and does not mutate state', async () => {
-    const { client, ws } = await setup();
-
-    // Server transitions room to locked
-    ws.peer.sendFromServer(JSON.stringify({ type: 'room.status', status: 'locked' }));
-    await new Promise(r => setTimeout(r, 10));
-    expect(client.getState().roomStatus).toBe('locked');
-
-    const before = client.getState().annotations.length;
-    const ann: RoomAnnotation = {
-      id: 'locked-1',
-      blockId: 'b1', startOffset: 0, endOffset: 5,
-      type: 'COMMENT', originalText: 'x', createdA: 1,
-    };
-    await expect(client.sendAnnotationAdd([ann])).rejects.toThrow(/locked/);
-    expect(client.getState().annotations.length).toBe(before);
-    client.disconnect();
-  });
-
-  test('sendOp rechecks roomStatus AFTER async encryption (race)', async () => {
-    // The room may be active at the start of sendOp but transition to locked
-    // during the async encryptEventOp await. Without a post-encrypt recheck,
-    // we'd send a doomed op and only learn from async lastError — confusing UX.
-    const { client, ws } = await setup();
-
-    // Large annotation so encryption takes measurable time; fire lock mid-flight.
-    const ann: RoomAnnotation = {
-      id: 'race-1',
-      blockId: 'b1', startOffset: 0, endOffset: 5,
-      type: 'COMMENT', originalText: 'x'.repeat(50_000), createdA: 1,
-    };
-    const sentBefore = ws.peer.sent.length;
-    const sendPromise = client.sendAnnotationAdd([ann]);
-
-    // Deliver `room.status: locked` while encryption is in flight.
-    ws.peer.sendFromServer(JSON.stringify({ type: 'room.status', status: 'locked' }));
-
-    await expect(sendPromise).rejects.toThrow(/locked/);
-    // No envelope was sent.
-    expect(ws.peer.sent.length).toBe(sentBefore);
-    client.disconnect();
   });
 });
 
@@ -862,7 +784,7 @@ describe('CollabRoomClient — state events fire on status transitions', () => {
 
     ws.peer.sendFromServer(JSON.stringify({
       type: 'auth.accepted',
-      roomStatus: 'locked',  // non-trivial so null would be visibly wrong
+      roomStatus: 'expired',  // non-trivial so null would be visibly wrong
       seq: 0, snapshotSeq: 0, snapshotAvailable: false,
     }));
     await connectPromise;
@@ -874,7 +796,7 @@ describe('CollabRoomClient — state events fire on status transitions', () => {
     expect(authedSnapshots.length).toBeGreaterThan(0);
     for (const s of authedSnapshots) {
       expect(s.roomStatus).not.toBeNull();
-      expect(s.roomStatus).toBe('locked');
+      expect(s.roomStatus).toBe('expired');
     }
 
     client.disconnect();
@@ -1063,219 +985,6 @@ describe('CollabRoomClient — sendOp send() throw does not mutate state (P2)', 
     await new Promise(r => setTimeout(r, 10));
     expect(client.getState().annotations.filter(a => a.id === 'send-ok-1').length).toBe(1);
 
-    client.disconnect();
-  });
-});
-
-describe('CollabRoomClient — lockRoom final-snapshot-seq contract (P1)', () => {
-  test('rejects when caller-supplied finalSnapshotSeq does not match client.seq (stale snapshot)', async () => {
-    const { client, ws, eventKey } = await setup({ withAdmin: true });
-
-    // Advance client.seq to 5 with an incoming event.
-    const ann: RoomAnnotation = {
-      id: 'e-1', blockId: 'b1', startOffset: 0, endOffset: 5,
-      type: 'COMMENT', originalText: 'x', createdA: 1,
-    };
-    const cipher = await encryptEventOp(eventKey, { type: 'annotation.add', annotations: [ann] });
-    ws.peer.sendFromServer(JSON.stringify({
-      type: 'room.event', seq: 5, receivedAt: Date.now(),
-      envelope: { clientId: 'other', opId: 'o1', channel: 'event', ciphertext: cipher },
-    }));
-    await waitFor(() => client.getState().seq === 5, 1000);
-
-    const staleSnapshot: RoomSnapshot = { versionId: 'v1', planMarkdown: '# Stale', annotations: [] };
-    // Caller built this snapshot at seq 3, but client.seq is now 5 — must reject.
-    const sentBefore = ws.peer.sent.length;
-    await expect(
-      client.lockRoom({ finalSnapshot: staleSnapshot, finalSnapshotSeq: 3 }),
-    ).rejects.toThrow(InvalidOutboundPayloadError);
-    // No admin handshake initiated.
-    expect(ws.peer.sent.length).toBe(sentBefore);
-    client.disconnect();
-  });
-
-  test('requires finalSnapshot and finalSnapshotSeq to be supplied together', async () => {
-    const { client } = await setup({ withAdmin: true });
-    const snap: RoomSnapshot = { versionId: 'v1', planMarkdown: '# S', annotations: [] };
-    await expect(client.lockRoom({ finalSnapshot: snap })).rejects.toThrow(InvalidOutboundPayloadError);
-    await expect(client.lockRoom({ finalSnapshotSeq: 0 })).rejects.toThrow(InvalidOutboundPayloadError);
-    client.disconnect();
-  });
-
-  test('rejects when includeFinalSnapshot combined with explicit finalSnapshot', async () => {
-    const { client } = await setup({ withAdmin: true });
-    const snap: RoomSnapshot = { versionId: 'v1', planMarkdown: '# S', annotations: [] };
-    await expect(
-      client.lockRoom({ includeFinalSnapshot: true, finalSnapshot: snap, finalSnapshotSeq: 0 }),
-    ).rejects.toThrow(InvalidOutboundPayloadError);
-    client.disconnect();
-  });
-
-  test('includeFinalSnapshot: true on a fresh room (seq=0) skips the final snapshot, not rejected by server', async () => {
-    // If no events have been consumed, the initial snapshot (seq 0) is already
-    // the baseline. Sending another snapshot at atSeq=0 would be rejected by
-    // the server's atSeq > existingSnapshotSeq rule. The client must skip
-    // the final-snapshot payload entirely in this case.
-    const { client, ws } = await setup({ withAdmin: true });
-    expect(client.getState().seq).toBe(0);
-
-    const lockPromise = client.lockRoom({ includeFinalSnapshot: true });
-    await ws.peer.expectFromClient();  // admin.challenge.request
-
-    const adminChallenge: AdminChallenge = {
-      type: 'admin.challenge', challengeId: generateChallengeId(),
-      nonce: generateNonce(), expiresAt: Date.now() + 30_000,
-    };
-    ws.peer.sendFromServer(JSON.stringify(adminChallenge));
-
-    const cmdMsg = await ws.peer.expectFromClient();
-    const cmd = JSON.parse(cmdMsg) as AdminCommandEnvelope;
-    expect(cmd.command.type).toBe('room.lock');
-    if (cmd.command.type === 'room.lock') {
-      expect(cmd.command.finalSnapshotCiphertext).toBeUndefined();
-      expect(cmd.command.finalSnapshotAtSeq).toBeUndefined();
-    }
-
-    ws.peer.sendFromServer(JSON.stringify({ type: 'room.status', status: 'locked' }));
-    await lockPromise;
-    client.disconnect();
-  });
-
-  test('includeFinalSnapshot: true builds snapshot + atSeq atomically from current state', async () => {
-    const { client, ws, eventKey } = await setup({ withAdmin: true });
-
-    // Advance client.seq to 5.
-    const ann: RoomAnnotation = {
-      id: 'inc-1', blockId: 'b1', startOffset: 0, endOffset: 5,
-      type: 'COMMENT', originalText: 'x', createdA: 1,
-    };
-    const cipher = await encryptEventOp(eventKey, { type: 'annotation.add', annotations: [ann] });
-    ws.peer.sendFromServer(JSON.stringify({
-      type: 'room.event', seq: 5, receivedAt: Date.now(),
-      envelope: { clientId: 'other', opId: 'o1', channel: 'event', ciphertext: cipher },
-    }));
-    await waitFor(() => client.getState().seq === 5, 1000);
-
-    const lockPromise = client.lockRoom({ includeFinalSnapshot: true });
-    await ws.peer.expectFromClient();  // admin.challenge.request
-
-    const adminChallenge: AdminChallenge = {
-      type: 'admin.challenge', challengeId: generateChallengeId(),
-      nonce: generateNonce(), expiresAt: Date.now() + 30_000,
-    };
-    ws.peer.sendFromServer(JSON.stringify(adminChallenge));
-
-    const cmdMsg = await ws.peer.expectFromClient();
-    const cmd = JSON.parse(cmdMsg) as AdminCommandEnvelope;
-    if (cmd.command.type === 'room.lock') {
-      expect(cmd.command.finalSnapshotAtSeq).toBe(5);
-      expect(cmd.command.finalSnapshotCiphertext).toBeDefined();
-    }
-
-    ws.peer.sendFromServer(JSON.stringify({ type: 'room.status', status: 'locked' }));
-    await lockPromise;
-    client.disconnect();
-  });
-});
-
-describe('CollabRoomClient — lockRoom finalSnapshotAtSeq (P2)', () => {
-  test('captures seq synchronously at lockRoom entry (not after async encrypt)', async () => {
-    // This test is structural: it proves the captured atSeq matches the value of
-    // client.seq observed at the exact moment lockRoom() is invoked, regardless
-    // of how many events race in during encryption. The buggy version (reading
-    // this.seq AFTER the await) could silently include later events in the label.
-    //
-    // We verify determinism by (a) driving seq to a known value before the call,
-    // (b) immediately invoking lockRoom and capturing that seq snapshot,
-    // (c) delivering further events during the admin challenge roundtrip,
-    // (d) asserting the admin.command carries the ORIGINALLY-observed seq.
-    const { client, ws, eventKey } = await setup({ withAdmin: true });
-
-    // Prime to seq 5
-    const pre1: RoomAnnotation = {
-      id: 'pre-1',
-      blockId: 'b1', startOffset: 0, endOffset: 5,
-      type: 'COMMENT', originalText: 'x', createdA: 1,
-    };
-    const pre1Cipher = await encryptEventOp(eventKey, { type: 'annotation.add', annotations: [pre1] });
-    ws.peer.sendFromServer(JSON.stringify({
-      type: 'room.event', seq: 5, receivedAt: Date.now(),
-      envelope: { clientId: 'other', opId: 'o1', channel: 'event', ciphertext: pre1Cipher },
-    }));
-    await waitFor(() => client.getState().seq === 5, 1000);
-
-    const seqAtLockStart = client.getState().seq;
-    expect(seqAtLockStart).toBe(5);
-
-    // ─────────────────────────────────────────────────────────────────────
-    // NOTE: This is a regression stress test, not a scheduler proof.
-    //
-    // We rely on a large payload to make WebCrypto encrypt of the final
-    // snapshot empirically slower than the small event decrypt, which reliably
-    // reproduces the race in practice (verified: the test fails against the
-    // pre-fix implementation, passes against the fix). It is NOT a formal
-    // proof that encryptSnapshot is still pending when the seq-7 event applies.
-    //
-    // If this ever flakes in CI, the correct fix is NOT to delete or weaken
-    // the test. The right answer is to introduce a small injectable test seam
-    // for encryptSnapshot (e.g. an optional `cryptoImpl` on InternalClientOptions,
-    // or a `mock.module` hook wired before client.ts imports resolve) so the
-    // encrypt completion can be controlled deterministically via a pending
-    // promise. The invariant this test pins — finalSnapshotAtSeq must match
-    // the seq observed at lockRoom entry — is worth preserving.
-    // ─────────────────────────────────────────────────────────────────────
-    const bigAnnotations: RoomAnnotation[] = Array.from({ length: 2000 }, (_, i) => ({
-      id: `big-${i}`,
-      blockId: `block-${i}`,
-      startOffset: 0,
-      endOffset: 10,
-      type: 'COMMENT' as const,
-      originalText: 'x'.repeat(200),
-      text: 'y'.repeat(200),
-      createdA: 1,
-    }));
-    const finalSnapshot: RoomSnapshot = {
-      versionId: 'v1',
-      planMarkdown: 'z'.repeat(100_000),
-      annotations: bigAnnotations,
-    };
-
-    // Precompute the small event's ciphertext so its delivery is instantaneous.
-    const pre2: RoomAnnotation = { ...pre1, id: 'pre-2' };
-    const pre2Cipher = await encryptEventOp(eventKey, { type: 'annotation.add', annotations: [pre2] });
-
-    // Kick off lockRoom. New API: caller supplies snapshot + the seq it was
-    // built from, together. The client rejects if client.seq has advanced
-    // past the supplied finalSnapshotSeq (prevents stale-content labeling).
-    const lockPromise = client.lockRoom({ finalSnapshot, finalSnapshotSeq: seqAtLockStart });
-
-    // While encryptSnapshot (~MB) is still in flight, deliver a seq-7 event and
-    // wait for the client to have fully applied it. The big encrypt won't have
-    // completed yet, so the buggy code's post-await read of this.seq will see 7.
-    ws.peer.sendFromServer(JSON.stringify({
-      type: 'room.event', seq: 7, receivedAt: Date.now(),
-      envelope: { clientId: 'other', opId: 'o2', channel: 'event', ciphertext: pre2Cipher },
-    }));
-    await waitFor(() => client.getState().seq === 7, 1000);
-
-    await ws.peer.expectFromClient();  // admin.challenge.request
-
-    const adminChallenge: AdminChallenge = {
-      type: 'admin.challenge', challengeId: generateChallengeId(),
-      nonce: generateNonce(), expiresAt: Date.now() + 30_000,
-    };
-    ws.peer.sendFromServer(JSON.stringify(adminChallenge));
-
-    const cmdMsg = await ws.peer.expectFromClient();
-    const cmd = JSON.parse(cmdMsg) as AdminCommandEnvelope;
-    expect(cmd.command.type).toBe('room.lock');
-    if (cmd.command.type === 'room.lock') {
-      // Must match the seq observed at lockRoom entry, not the now-current seq of 7.
-      expect(cmd.command.finalSnapshotAtSeq).toBe(seqAtLockStart);
-    }
-
-    ws.peer.sendFromServer(JSON.stringify({ type: 'room.status', status: 'locked' }));
-    await lockPromise;
     client.disconnect();
   });
 });
@@ -2512,15 +2221,6 @@ describe('CollabRoomClient — outbound validation (P2)', () => {
     client.disconnect();
   });
 
-  test('lockRoom rejects malformed finalSnapshot before admin challenge', async () => {
-    const { client, ws } = await setup({ withAdmin: true });
-    const sentBefore = ws.peer.sent.length;
-    const bad = { versionId: 'v99', planMarkdown: 'nope', annotations: [] } as unknown as RoomSnapshot;
-    await expect(client.lockRoom({ finalSnapshot: bad, finalSnapshotSeq: 0 })).rejects.toThrow(InvalidOutboundPayloadError);
-    // Must NOT have sent an admin.challenge.request — validation short-circuits.
-    assertNoNewSend(ws, sentBefore);
-    client.disconnect();
-  });
 });
 
 describe('createRoom — success body is not parsed (P2)', () => {
@@ -2622,11 +2322,11 @@ describe('CollabRoomClient — runAdminCommand send() failure (P3)', () => {
       return sendMock(data);
     };
 
-    await expect(client.lockRoom()).rejects.toThrow('simulated admin send failure');
+    await expect(client.deleteRoom()).rejects.toThrow('simulated admin send failure');
 
     // pendingAdmin should be cleared — a fresh command must not report "Another admin command is pending".
-    // Drive a full successful lock now.
-    const lockPromise = client.lockRoom();
+    // Drive a full successful delete now.
+    const deletePromise = client.deleteRoom();
     await ws.peer.expectFromClient();  // admin.challenge.request
 
     const adminChallenge: AdminChallenge = {
@@ -2637,8 +2337,8 @@ describe('CollabRoomClient — runAdminCommand send() failure (P3)', () => {
     };
     ws.peer.sendFromServer(JSON.stringify(adminChallenge));
     await ws.peer.expectFromClient();  // admin.command
-    ws.peer.sendFromServer(JSON.stringify({ type: 'room.status', status: 'locked' }));
-    await lockPromise;
+    ws.peer.sendFromServer(JSON.stringify({ type: 'room.status', status: 'deleted' }));
+    await deletePromise;
 
     client.disconnect();
   });

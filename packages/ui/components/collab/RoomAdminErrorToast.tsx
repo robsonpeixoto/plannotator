@@ -2,12 +2,12 @@ import React, { useEffect } from 'react';
 import type { AdminAction } from '../../hooks/collab/useRoomAdminActions';
 
 /**
- * Bottom-right toast for lock / unlock / delete failures. Replaces
- * the inline error banner that used to live inside `RoomPanel`. A
- * transient toast matches the action-is-rare-and-retriable shape of
- * admin commands better than a sticky panel element: the user clicks,
- * nothing happens if it failed, they see the toast, click Dismiss or
- * let it auto-dismiss, and click again.
+ * Bottom-right toast for admin command failures (currently delete).
+ * Replaces the inline error banner that used to live inside
+ * `RoomPanel`. A transient toast matches the action-is-rare-and-
+ * retriable shape of admin commands better than a sticky panel
+ * element: the user clicks, nothing happens if it failed, they see
+ * the toast, click Dismiss or let it auto-dismiss, and click again.
  *
  * Auto-dismiss is 8s — long enough for the user to read a short
  * error message, short enough that a forgotten toast doesn't linger
@@ -24,8 +24,6 @@ const AUTO_DISMISS_MS = 8_000;
 
 function actionLabel(action: AdminAction): string {
   switch (action) {
-    case 'lock':   return 'Failed to lock room';
-    case 'unlock': return 'Failed to unlock room';
     case 'delete': return 'Failed to delete room';
   }
 }

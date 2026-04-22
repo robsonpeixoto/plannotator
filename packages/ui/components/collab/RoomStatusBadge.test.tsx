@@ -40,13 +40,6 @@ describe('RoomStatusBadge', () => {
     expect(label(container)).toBe('Offline');
   });
 
-  test('prioritizes "Locked" over connection states', () => {
-    const { container } = render(
-      <RoomStatusBadge connectionStatus="authenticated" roomStatus="locked" />,
-    );
-    expect(label(container)).toBe('Locked');
-  });
-
   test('prioritizes "Room deleted" above all', () => {
     const { container } = render(
       <RoomStatusBadge connectionStatus="reconnecting" roomStatus="deleted" />,

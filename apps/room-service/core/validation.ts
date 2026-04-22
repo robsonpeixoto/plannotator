@@ -104,7 +104,7 @@ export function isValidationError<T>(result: T | ValidationError): result is Val
 // ---------------------------------------------------------------------------
 
 const VALID_CHANNELS = new Set(['event', 'presence']);
-const VALID_ADMIN_COMMANDS = new Set(['room.lock', 'room.unlock', 'room.delete']);
+const VALID_ADMIN_COMMANDS = new Set(['room.delete']);
 
 /**
  * Max opId length on inbound event-channel envelopes. opId is stored DURABLY
@@ -217,28 +217,7 @@ export function validateAdminCommandEnvelope(
   // - Downstream code (logging, storage, proof recomputation) only ever sees
   //   the narrow shape its type says it does.
   let sanitizedCommand: AdminCommandEnvelope['command'];
-  if (cmd.type === 'room.lock') {
-    const hasCiphertext = isNonEmptyString(cmd.finalSnapshotCiphertext);
-    const hasAtSeq = typeof cmd.finalSnapshotAtSeq === 'number';
-    if (hasCiphertext !== hasAtSeq) {
-      return { error: '"finalSnapshotCiphertext" and "finalSnapshotAtSeq" must be both present or both absent', status: 400 };
-    }
-    if (hasCiphertext && (cmd.finalSnapshotCiphertext as string).length > MAX_SNAPSHOT_CIPHERTEXT_LENGTH) {
-      return { error: `"finalSnapshotCiphertext" exceeds max size (${Math.round(MAX_SNAPSHOT_CIPHERTEXT_LENGTH / 1024)} KB)`, status: 413 };
-    }
-    if (hasAtSeq && ((cmd.finalSnapshotAtSeq as number) < 0 || !Number.isInteger(cmd.finalSnapshotAtSeq))) {
-      return { error: '"finalSnapshotAtSeq" must be a non-negative integer', status: 400 };
-    }
-    sanitizedCommand = hasCiphertext && hasAtSeq
-      ? {
-          type: 'room.lock',
-          finalSnapshotCiphertext: cmd.finalSnapshotCiphertext as string,
-          finalSnapshotAtSeq: cmd.finalSnapshotAtSeq as number,
-        }
-      : { type: 'room.lock' };
-  } else if (cmd.type === 'room.unlock') {
-    sanitizedCommand = { type: 'room.unlock' };
-  } else if (cmd.type === 'room.delete') {
+  if (cmd.type === 'room.delete') {
     sanitizedCommand = { type: 'room.delete' };
   } else {
     // Explicit fallback: if a future admin command is added to

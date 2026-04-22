@@ -435,8 +435,6 @@ export function useRoomAnnotationController(
   // "Sending…"/failed rows without contaminating the canonical list.
   const pendingAdditions = optimisticAdds;
 
-  const isLocked = room.roomStatus === 'locked';
-
   return {
     mode: 'room',
     annotations,
@@ -449,7 +447,6 @@ export function useRoomAnnotationController(
     clear,
     retry,
     discard,
-    isLocked,
   };
 }
 
@@ -493,8 +490,6 @@ function usePlaceholderRoom(): UseCollabRoomReturn {
     removeAnnotations: async () => {},
     clearAnnotations: async () => {},
     updatePresence: async () => {},
-    lock: async () => {},
-    unlock: async () => {},
     deleteRoom: async () => {},
     client: null,
   }), []);

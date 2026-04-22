@@ -1088,16 +1088,13 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
     canStartLiveRoom,
   });
 
-  // Note: room admin actions (lock / unlock / delete) intentionally
-  // only live in the RoomPanel. The header menu used to
-  // duplicate them via a `runHeaderRoomAdmin` wrapper, but that path
-  // swallowed errors without a visible surface — RoomPanel owns the
-  // `adminActionError` UI and the pending-state chrome, so routing
-  // admin clicks through a single focal point gives the user a
-  // consistent recovery path. We keep `isRoomAdmin` / `roomIsLocked`
-  // props threaded into `PlanHeaderMenu` so other header-level
-  // conditionals can still read capability state without offering
-  // click targets.
+  // Note: the room admin action (delete) lives only in the Room
+  // menu (RoomMenu / RoomHeaderControls). The PlanHeaderMenu used to
+  // duplicate it via a `runHeaderRoomAdmin` wrapper, but that path
+  // swallowed errors without a visible surface — the Room menu owns
+  // the pending-state chrome and the error toast, so routing admin
+  // clicks through a single focal point gives the user a consistent
+  // recovery path.
 
   // Annotate mode handler — sends feedback via /api/feedback
   const handleAnnotateFeedback = async () => {
@@ -1193,15 +1190,7 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
     origin, getAgentWarning,
   ]);
 
-  // Room-mode lock: when the admin has locked the room, mutation
-  // affordances must disable at the source instead of letting the user
-  // submit and get a rejected op. Short-circuits add/remove/edit to
-  // no-ops; Viewer/AnnotationPanel also receive `roomIsLocked` to hide
-  // selection toolbars and per-row edit/delete controls.
-  const roomIsLocked = !!annotationController.isLocked;
-
   const handleAddAnnotation = (ann: Annotation) => {
-    if (roomIsLocked) return;
     annotationController.add(ann);
     setSelectedAnnotationId(ann.id);
     setIsPanelOpen(true);
@@ -1221,10 +1210,9 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
   // Room mode: do NOT remove the highlight before the server echo. The
   // room annotation reconciliation effect (above) removes marks when
   // they disappear from canonical state. Removing early would desync
-  // the DOM if the server rejects (e.g. locked room race): the
-  // annotation would stay canonical but lose its visible mark.
+  // the DOM if the server rejects: the annotation would stay canonical
+  // but lose its visible mark.
   const removeAnnotation = (id: string) => {
-    if (roomIsLocked) return;
     if (!roomModeActive) {
       viewerRef.current?.removeHighlight(id);
     }
@@ -1273,8 +1261,8 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
     // Room mode: DO NOT revert here. The override must stay until the
     // canonical checkbox annotation actually disappears from the room
     // state (echoed remove). Otherwise a remove that later fails
-    // (disconnect, lock race, server rejection) leaves the annotation
-    // canonical but the checkbox visually reverted — inconsistent.
+    // (disconnect, server rejection) leaves the annotation canonical
+    // but the checkbox visually reverted — inconsistent.
     // `useCheckboxOverrides` runs a reconciliation effect that clears
     // overrides once the backing annotation is gone from BOTH canonical
     // and pending/failed state, which is exactly when it's safe to
@@ -1288,7 +1276,6 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
   };
 
   const handleEditAnnotation = (id: string, updates: Partial<Annotation>) => {
-    if (roomIsLocked) return;
     const ann = allAnnotations.find(a => a.id === id);
     if (ann?.source && externalAnnotations.some(e => e.id === id)) {
       updateExternalAnnotation(id, updates);
@@ -1780,8 +1767,6 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
                 onCopyAdminUrl={handleCopyAdminUrl}
                 onCopyConsolidatedFeedback={handleCopyConsolidatedFeedback}
                 onCopyAgentInstructions={handleCopyRoomAgentInstructions}
-                onLock={() => void roomAdmin.run('lock')}
-                onUnlock={() => void roomAdmin.run('unlock')}
                 onDelete={() => void roomAdmin.run('delete')}
               />
             )}
@@ -1832,15 +1817,6 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
               onCopyShareLink={handleCopyShareLink}
               onOpenImport={() => setShowImport(true)}
               onStartLiveRoom={canStartLiveRoom ? handleStartLiveRoom : undefined}
-              isRoomAdmin={roomSession?.room?.hasAdminCapability ?? false}
-              roomIsLocked={roomSession?.room?.roomStatus === 'locked'}
-              // Admin actions live only in the RoomPanel.
-              // Passing undefined here hides the header-menu duplicate
-              // so failures can't silently disappear in the catch
-              // block that used to live behind these callbacks.
-              onRoomLock={undefined}
-              onRoomUnlock={undefined}
-              onRoomDelete={undefined}
               onSaveToObsidian={() => handleQuickSaveToNotes('obsidian')}
               onSaveToBear={() => handleQuickSaveToNotes('bear')}
               onSaveToOctarine={() => handleQuickSaveToNotes('octarine')}
@@ -2053,7 +2029,6 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
                   mode={editorMode}
                   inputMethod={inputMethod}
                   taterMode={taterMode}
-                  readOnly={roomIsLocked}
                   // Room mode: stamp new annotations with the joined
                   // display name instead of the cookie-backed Tater
                   // identity. The Tater cookie lives per-origin; on
@@ -2101,13 +2076,7 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
                   copyLabel={annotateSource === 'message' ? 'Copy message' : annotateSource === 'file' || annotateSource === 'folder' ? 'Copy file' : undefined}
                   archiveInfo={archive.currentInfo}
                   sourceInfo={sourceInfo}
-                  // Locked rooms: checkbox clicks mutate local override
-                  // state before calling addAnnotation. Even though
-                  // addAnnotation is a no-op in room-locked, setOverrides
-                  // still runs and the checkbox would visually toggle
-                  // locally without a server-backed annotation. Omit the
-                  // callback entirely so the checkbox is non-interactive.
-                  onToggleCheckbox={roomIsLocked ? undefined : checkbox.toggle}
+                  onToggleCheckbox={checkbox.toggle}
                   checkboxOverrides={checkbox.overrides}
                   actionsLabelMode={actionsLabelMode}
                   onHighlightSurfaceReset={bumpHighlightSurfaceGeneration}
@@ -2157,7 +2126,6 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
               }
               annotationController.discard?.(id);
             } : undefined}
-            roomIsLocked={roomIsLocked}
             // Room mode: "(me)" compares against the joined display
             // name instead of the per-origin Tater cookie, matching
             // the override Viewer uses to stamp new annotations.

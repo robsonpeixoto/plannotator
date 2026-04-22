@@ -77,8 +77,6 @@ function mockRoom(initial: {
     removeAnnotations: async (ids) => maybeFail('removeAnnotations', [ids]),
     clearAnnotations: async (src) => maybeFail('clearAnnotations', [src]),
     updatePresence: async () => {},
-    lock: async () => {},
-    unlock: async () => {},
     deleteRoom: async () => {},
     client: null,
   });
@@ -99,18 +97,13 @@ function mockRoom(initial: {
 }
 
 describe('useRoomAnnotationController', () => {
-  test('mode is "room" and isLocked reflects room status', () => {
+  test('mode is "room"', () => {
     const m = mockRoom({ roomStatus: 'active' });
-    const { result, rerender } = renderHook(
+    const { result } = renderHook(
       ({ room }) => useRoomAnnotationController(room),
       { initialProps: { room: m.room } },
     );
     expect(result.current.mode).toBe('room');
-    expect(result.current.isLocked).toBe(false);
-
-    m.setRoomStatus('locked');
-    rerender({ room: m.room });
-    expect(result.current.isLocked).toBe(true);
   });
 
   test('add() marks pending + populates pendingAdditions; NOT annotations, NOT echoed yet', async () => {

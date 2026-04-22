@@ -38,12 +38,6 @@ interface PanelProps {
   onRetry?: (id: string) => void;
   onDiscard?: (id: string) => void;
   /**
-   * Room-mode lock state. When true, per-row edit/delete affordances
-   * are suppressed: the user should experience the room as read-only
-   * instead of clicking buttons that silently get rejected.
-   */
-  roomIsLocked?: boolean;
-  /**
    * When set, "(me)" and the muted-color treatment match this value
    * instead of the cookie-backed `getIdentity()` used by `isCurrentUser`.
    * In room mode App passes the joined display name so the panel
@@ -74,7 +68,6 @@ export const AnnotationPanel: React.FC<PanelProps> = ({
   pendingAdditions,
   onRetry,
   onDiscard,
-  roomIsLocked,
   authorOverride,
 }) => {
   // Unified "is this the current user?" check. Room mode passes the
@@ -206,12 +199,12 @@ export const AnnotationPanel: React.FC<PanelProps> = ({
                     // user can't reason about. Failed rows offer the
                     // dedicated Retry/Discard controls rendered below.
                     onDelete={
-                      roomIsLocked || isPending || failure
+                      isPending || failure
                         ? undefined
                         : () => onDelete(ann.id)
                     }
                     onEdit={
-                      roomIsLocked || !onEdit || isPending || failure
+                      !onEdit || isPending || failure
                         ? undefined
                         : (updates: Partial<Annotation>) => onEdit(ann.id, updates)
                     }

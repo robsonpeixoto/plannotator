@@ -92,15 +92,6 @@ export interface UseCollabRoomReturn {
   clearAnnotations: (source?: string) => Promise<void>;
   updatePresence: (p: PresenceState) => Promise<void>;
 
-  /**
-   * Lock the room. Optionally include a final snapshot as the baseline for
-   * future fresh joiners. For product UI use, prefer `includeFinalSnapshot: true`
-   * — the client builds the snapshot and its atSeq atomically from current
-   * internal state, so there is no caller race. Advanced callers can supply
-   * `{ finalSnapshot, finalSnapshotSeq }` directly via the escape hatch client.
-   */
-  lock: (opts?: { includeFinalSnapshot?: boolean }) => Promise<void>;
-  unlock: () => Promise<void>;
   deleteRoom: () => Promise<void>;
 
   /**
@@ -300,12 +291,6 @@ export function useCollabRoom(options: UseCollabRoomOptions): UseCollabRoomRetur
   const updatePresence = useCallback(async (p: PresenceState) => {
     await requireClient().sendPresence(p);
   }, [requireClient]);
-  const lock = useCallback(async (opts?: { includeFinalSnapshot?: boolean }) => {
-    await requireClient().lockRoom(opts);
-  }, [requireClient]);
-  const unlock = useCallback(async () => {
-    await requireClient().unlockRoom();
-  }, [requireClient]);
   const deleteRoom = useCallback(async () => {
     await requireClient().deleteRoom();
   }, [requireClient]);
@@ -331,8 +316,6 @@ export function useCollabRoom(options: UseCollabRoomOptions): UseCollabRoomRetur
     removeAnnotations,
     clearAnnotations,
     updatePresence,
-    lock,
-    unlock,
     deleteRoom,
     client: clientForRender,
   };

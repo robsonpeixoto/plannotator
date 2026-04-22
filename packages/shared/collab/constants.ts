@@ -36,7 +36,7 @@ export const WS_CLOSE_REASON_ROOM_EXPIRED = 'Room expired';
  * The server MUST emit admin-command errors only with codes from this
  * namespace, and the client treats receipt of any of these while an
  * admin command is pending as a rejection of that command (vs. ignoring
- * event-channel errors like `validation_error` / `room_locked` /
+ * event-channel errors like `validation_error` /
  * `event_persist_failed` that are not part of the admin contract).
  *
  * Adding a new admin error code:
@@ -56,9 +56,6 @@ export const AdminErrorCode = {
   AdminChallengeExpired: 'admin_challenge_expired',
   InvalidAdminProof: 'invalid_admin_proof',
   InvalidState: 'invalid_state',
-  InvalidSnapshotSeq: 'invalid_snapshot_seq',
-  LockFailed: 'lock_failed',
-  UnlockFailed: 'unlock_failed',
   DeleteFailed: 'delete_failed',
 } as const;
 

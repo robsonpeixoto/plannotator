@@ -15,13 +15,14 @@ import type { AdminAction } from '../../hooks/collab/useRoomAdminActions';
  *   [conditional status pill] [peer avatars] [Room actions ▾]
  *
  * The status pill is shown only when the room is in a non-default
- * state — locked, reconnecting, connecting, or offline. A healthy
- * "Live" connection shows nothing here, keeping the header quiet on
- * the common case. Avatars are peers-only (the user is implied); the
- * Room menu exposes copy-link + copy-feedback + admin actions.
+ * state — reconnecting, connecting, offline, or deleted/expired. A
+ * healthy "Live" connection shows nothing here, keeping the header
+ * quiet on the common case. Avatars are peers-only (the user is
+ * implied); the Room menu exposes copy-link + copy-feedback + admin
+ * actions.
  *
- * All mutations (lock/unlock/delete, link copy, feedback copy) are
- * owned by the caller. This component is a pure surface.
+ * All mutations (delete, link copy, feedback copy) are owned by the
+ * caller. This component is a pure surface.
  */
 
 export interface RoomHeaderControlsProps {
@@ -35,18 +36,16 @@ export interface RoomHeaderControlsProps {
   onCopyAdminUrl(): void;
   onCopyConsolidatedFeedback(): void;
   onCopyAgentInstructions(): void;
-  onLock(): void;
-  onUnlock(): void;
   onDelete(): void;
   className?: string;
 }
 
 /**
  * "Healthy" states where the status pill adds noise without
- * information: we're authenticated to an active, non-locked room.
- * Anything outside that set is either a transient connection state
- * the user should know about (reconnecting / connecting) or a
- * product-level non-default (locked / expired / deleted).
+ * information: we're authenticated to an active room. Anything
+ * outside that set is either a transient connection state the user
+ * should know about (reconnecting / connecting) or a product-level
+ * non-default (expired / deleted).
  */
 function shouldShowStatusPill(
   connectionStatus: ConnectionStatus,
@@ -68,8 +67,6 @@ export function RoomHeaderControls({
   onCopyAdminUrl,
   onCopyConsolidatedFeedback,
   onCopyAgentInstructions,
-  onLock,
-  onUnlock,
   onDelete,
   className = '',
 }: RoomHeaderControlsProps): React.ReactElement {
@@ -92,15 +89,12 @@ export function RoomHeaderControls({
       )}
       <RoomMenu
         isAdmin={isAdmin}
-        roomStatus={roomStatus}
         adminUrl={adminUrl}
         pendingAdminAction={pendingAdminAction}
         onCopyParticipantUrl={onCopyParticipantUrl}
         onCopyAdminUrl={onCopyAdminUrl}
         onCopyConsolidatedFeedback={onCopyConsolidatedFeedback}
         onCopyAgentInstructions={onCopyAgentInstructions}
-        onLock={onLock}
-        onUnlock={onUnlock}
         onDelete={onDelete}
       />
     </div>

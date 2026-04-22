@@ -420,7 +420,7 @@ export type RoomTransportMessage =
 // 'created' was in this union historically, but the DO initializes rooms
 // directly to 'active' on creation and never transitions through 'created'.
 // Keeping it in the type would imply an unused lifecycle step.
-export type RoomStatus = 'active' | 'locked' | 'deleted' | 'expired';
+export type RoomStatus = 'active' | 'deleted' | 'expired';
 
 // ---------------------------------------------------------------------------
 // Sequenced Envelope (for event log storage)
@@ -473,8 +473,6 @@ export interface AuthAccepted {
 // ---------------------------------------------------------------------------
 
 export type AdminCommand =
-  | { type: 'room.lock'; finalSnapshotCiphertext?: string; finalSnapshotAtSeq?: number }
-  | { type: 'room.unlock' }
   | { type: 'room.delete' };
 
 export interface AdminChallengeRequest {

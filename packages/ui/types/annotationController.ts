@@ -8,13 +8,11 @@
  * directly; that pattern does not compose with the server-authoritative
  * write model of live rooms.
  *
- * Two fields are implementation-specific and optional:
+ * One field is implementation-specific and optional:
  *   - `setAll` — local mode only. Exposed for `useSharing` (shared-URL
  *     import) and draft-restore paths that need to REPLACE the entire list
  *     atomically. Room mode cannot express "replace all" as a single
  *     protocol op; callers must branch on `controller.setAll`.
- *   - `isLocked` — room mode only. Surfaced so the UI can disable mutation
- *     affordances when the admin has locked the room.
  *
  * `pending` holds operations that have been sent but whose echo hasn't
  * arrived yet. Keyed by id with the op kind attached. The room-mode
@@ -81,6 +79,4 @@ export interface AnnotationController {
 
   /** Local mode only. Atomic replace-all; undefined in room mode. */
   setAll?: React.Dispatch<React.SetStateAction<Annotation[]>>;
-  /** Room mode only. Undefined in local mode. */
-  isLocked?: boolean;
 }

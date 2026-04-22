@@ -372,12 +372,6 @@ export class RoomDurableObject extends DurableObject<Env> {
     if (!roomState) return;
 
     if (envelope.channel === 'event') {
-      // Locked rooms reject event mutations (annotation ops)
-      if (roomState.status === 'locked') {
-        this.sendError(ws, 'room_locked', 'Room is locked — annotation operations are not allowed');
-        return;
-      }
-
       // Sequence the event on an IMMUTABLE next-state object. If the
       // durable write fails, we must NOT have already bumped roomState.seq
       // in memory — the next event must reuse the current seq, not a gap'd
@@ -720,19 +714,13 @@ export class RoomDurableObject extends DurableObject<Env> {
 
     // Apply command
     switch (cmdEnvelope.command.type) {
-      case 'room.lock':
-        await this.applyLock(ws, roomState, cmdEnvelope.command);
-        break;
-      case 'room.unlock':
-        await this.applyUnlock(ws, roomState);
-        break;
       case 'room.delete':
         await this.applyDelete(ws, roomState);
         break;
       default: {
         // Compile-time exhaustiveness guard: if a new admin command is added
         // to the union and a case here is missed, TypeScript fails here.
-        const _exhaustive: never = cmdEnvelope.command;
+        const _exhaustive: never = cmdEnvelope.command.type;
         void _exhaustive;
         break;
       }
@@ -742,104 +730,6 @@ export class RoomDurableObject extends DurableObject<Env> {
   // ---------------------------------------------------------------------------
   // Admin Command Execution
   // ---------------------------------------------------------------------------
-
-  private async applyLock(
-    ws: WebSocket,
-    roomState: RoomDurableState,
-    command: Extract<AdminCommandEnvelope['command'], { type: 'room.lock' }>,
-  ): Promise<void> {
-    if (roomState.status !== 'active') {
-      this.sendAdminError(ws, AdminErrorCode.InvalidState, `Cannot lock room in "${roomState.status}" state`);
-      return;
-    }
-
-    // Build a NEW state object immutably so a storage.put failure leaves the
-    // in-memory roomState reference unchanged and the caller can't observe
-    // a partially-applied lock.
-    const next: RoomDurableState = {
-      ...roomState,
-      status: 'locked',
-      lockedAt: Date.now(),
-    };
-
-    // Store final snapshot if provided. Rules:
-    //   - atSeq > roomState.seq → reject (claims a position beyond what the
-    //     server has durably sequenced).
-    //   - atSeq < existingSnapshotSeq → reject (would regress the baseline).
-    //   - atSeq === existingSnapshotSeq → accept the lock but IGNORE the
-    //     redundant snapshot payload. Overwriting at the same seq would
-    //     reintroduce the split-brain risk we explicitly blocked (two
-    //     different ciphertexts labeled with the same seq); rejecting the
-    //     whole lock would break the realistic lock → unlock → lock flow
-    //     where no events arrive between the two locks and client.seq still
-    //     equals the previous snapshotSeq.
-    //   - atSeq > existingSnapshotSeq → accept, write the new snapshot.
-    if (command.finalSnapshotCiphertext && command.finalSnapshotAtSeq !== undefined) {
-      const atSeq = command.finalSnapshotAtSeq;
-      const existingSnapshotSeq = roomState.snapshotSeq ?? 0;
-      if (atSeq > roomState.seq || atSeq < existingSnapshotSeq) {
-        this.sendAdminError(ws, AdminErrorCode.InvalidSnapshotSeq, `finalSnapshotAtSeq must be >= ${existingSnapshotSeq} and <= ${roomState.seq}`);
-        return;
-      }
-      if (atSeq > existingSnapshotSeq) {
-        next.snapshotCiphertext = command.finalSnapshotCiphertext;
-        next.snapshotSeq = atSeq;
-      } else {
-        // atSeq === existingSnapshotSeq: keep the existing stored snapshot;
-        // log so this is visible in ops even though it's expected behavior.
-        safeLog('admin:lock-snapshot-redundant', {
-          roomId: roomState.roomId,
-          atSeq,
-          existingSnapshotSeq,
-        });
-      }
-    }
-
-    try {
-      await this.ctx.storage.put('room', next);
-    } catch (e) {
-      // Do NOT broadcast room.status or mutate in-memory state on durable
-      // write failure. Send an admin-scoped error so the pending lock
-      // rejects cleanly on the caller.
-      safeLog('admin:lock-storage-error', { roomId: roomState.roomId, error: String(e) });
-      this.sendAdminError(ws, AdminErrorCode.LockFailed, 'Failed to persist locked state');
-      return;
-    }
-
-    // Durable write succeeded — now safe to sync in-memory state and broadcast.
-    Object.assign(roomState, next);
-    this.broadcast({ type: 'room.status', status: 'locked' });
-    safeLog('admin:room-locked', { roomId: roomState.roomId });
-  }
-
-  private async applyUnlock(
-    ws: WebSocket,
-    roomState: RoomDurableState,
-  ): Promise<void> {
-    if (roomState.status !== 'locked') {
-      this.sendAdminError(ws, AdminErrorCode.InvalidState, `Cannot unlock room in "${roomState.status}" state`);
-      return;
-    }
-
-    // Immutable next-state + gated broadcast, matching applyLock.
-    const next: RoomDurableState = {
-      ...roomState,
-      status: 'active',
-      lockedAt: undefined,
-    };
-
-    try {
-      await this.ctx.storage.put('room', next);
-    } catch (e) {
-      safeLog('admin:unlock-storage-error', { roomId: roomState.roomId, error: String(e) });
-      this.sendAdminError(ws, AdminErrorCode.UnlockFailed, 'Failed to persist unlocked state');
-      return;
-    }
-
-    Object.assign(roomState, next);
-    this.broadcast({ type: 'room.status', status: 'active' });
-    safeLog('admin:room-unlocked', { roomId: roomState.roomId });
-  }
 
   private async applyDelete(
     ws: WebSocket,

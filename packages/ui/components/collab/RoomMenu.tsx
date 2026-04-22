@@ -1,13 +1,12 @@
 import React, { useState } from 'react';
-import type { RoomStatus } from '@plannotator/shared/collab';
 import { ActionMenu, ActionMenuDivider, ActionMenuItem } from '../ActionMenu';
 import type { AdminAction } from '../../hooks/collab/useRoomAdminActions';
 
 /**
  * Room actions dropdown, anchored in the editor header next to the
  * participant avatars. Replaces the floating `RoomPanel` — copy links,
- * copy consolidated feedback, and (for admins) lock / unlock / delete
- * and the admin recovery link disclosure all live behind one click.
+ * copy consolidated feedback, and (for admins) delete and the admin
+ * recovery link disclosure all live behind one click.
  *
  * Click-outside / Esc close is handled by the shared `ActionMenu`
  * primitive. The trigger is a pill-shaped button with a link icon and
@@ -17,17 +16,14 @@ import type { AdminAction } from '../../hooks/collab/useRoomAdminActions';
 
 export interface RoomMenuProps {
   isAdmin: boolean;
-  roomStatus: RoomStatus | null;
   /** Non-null when the caller holds admin capability. */
   adminUrl?: string;
-  /** Set while an admin command is in flight; disables Lock/Unlock/Delete items. */
+  /** Set while an admin command is in flight; disables the Delete item. */
   pendingAdminAction?: AdminAction;
   onCopyParticipantUrl(): void;
   onCopyConsolidatedFeedback(): void;
   onCopyAgentInstructions(): void;
   onCopyAdminUrl(): void;
-  onLock(): void;
-  onUnlock(): void;
   onDelete(): void;
 }
 
@@ -41,16 +37,6 @@ const LinkIcon = (
 const CopyIcon = (
   <svg className={ICON_CLASS} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
     <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-  </svg>
-);
-const LockIcon = (
-  <svg className={ICON_CLASS} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m0 0v2m0-2h2m-2 0H10m8-9V6a6 6 0 00-12 0v2m-2 0h16v10a2 2 0 01-2 2H6a2 2 0 01-2-2V8z" />
-  </svg>
-);
-const UnlockIcon = (
-  <svg className={ICON_CLASS} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M8 11V7a4 4 0 118 0m-4 8v2M5 11h14a2 2 0 012 2v7a2 2 0 01-2 2H5a2 2 0 01-2-2v-7a2 2 0 012-2z" />
   </svg>
 );
 const DeleteIcon = (
@@ -76,15 +62,12 @@ const ChevronIcon = (
 
 export function RoomMenu({
   isAdmin,
-  roomStatus,
   adminUrl,
   pendingAdminAction,
   onCopyParticipantUrl,
   onCopyConsolidatedFeedback,
   onCopyAgentInstructions,
   onCopyAdminUrl,
-  onLock,
-  onUnlock,
   onDelete,
 }: RoomMenuProps): React.ReactElement {
   // Admin recovery link is disclosure-gated inside the menu, same as
@@ -92,7 +75,6 @@ export function RoomMenu({
   // click makes accidental copy-paste into the participant channel
   // harder.
   const [adminDisclosed, setAdminDisclosed] = useState(false);
-  const isLocked = roomStatus === 'locked';
 
   return (
     <ActionMenu
@@ -162,28 +144,6 @@ export function RoomMenu({
           {isAdmin && (
             <>
               <ActionMenuDivider />
-              {isLocked ? (
-                <ActionMenuItem
-                  icon={UnlockIcon}
-                  label={pendingAdminAction === 'unlock' ? 'Unlocking…' : 'Unlock room'}
-                  onClick={() => {
-                    if (pendingAdminAction) return;
-                    closeMenu();
-                    onUnlock();
-                  }}
-                />
-              ) : (
-                <ActionMenuItem
-                  icon={LockIcon}
-                  label={pendingAdminAction === 'lock' ? 'Locking…' : 'Lock room'}
-                  onClick={() => {
-                    if (pendingAdminAction) return;
-                    closeMenu();
-                    onLock();
-                  }}
-                />
-              )}
-
               {/*
                 Admin recovery link: keep the two-step disclosure so a
                 creator can't accidentally paste it into the same

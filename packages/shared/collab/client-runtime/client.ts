@@ -19,7 +19,6 @@ import {
   decryptEventPayload,
   encryptPresence,
   decryptPresence,
-  encryptSnapshot,
   decryptSnapshot,
 } from '../crypto';
 import { ADMIN_ERROR_CODES, WS_CLOSE_REASON_ROOM_DELETED, WS_CLOSE_REASON_ROOM_EXPIRED, WS_CLOSE_ROOM_UNAVAILABLE } from '../constants';
@@ -565,106 +564,6 @@ export class CollabRoomClient {
       // Socket transitioned to closing between the liveness check and send.
       // Still lossy — drop silently.
     }
-  }
-
-  /**
-   * Lock the room. Optionally include a final snapshot that future fresh joins
-   * will receive as the baseline.
-   *
-   * Two final-snapshot modes:
-   *
-   *   { includeFinalSnapshot: true }
-   *     Atomic. The client builds a consistent snapshot of its current
-   *     plaintext state labeled at the seq observed at call time. Events
-   *     that arrive AFTER that seq (e.g. during snapshot encryption, or
-   *     between lock and server processing) are NOT captured in this
-   *     snapshot payload — that's fine: the server's authoritative event
-   *     log keeps those events, and future fresh joiners receive the
-   *     snapshot plus a replay of events after snapshotSeq. Snapshot +
-   *     replay is how log-based systems stay correct.
-   *
-   *   { finalSnapshot, finalSnapshotSeq }
-   *     Advanced. Caller supplies a snapshot that they built from state at
-   *     exactly `finalSnapshotSeq`. Both must be supplied together; the
-   *     client rejects if `finalSnapshotSeq !== this.seq` at call time. This
-   *     catches a different bug than the includeFinalSnapshot path: a caller
-   *     who captured state at seq S, let more events arrive (so this.seq is
-   *     now S+N), and then tries to label that STALE snapshot content with
-   *     a seq the server would interpret as "everything through here". That
-   *     would make fresh joiners skip the in-between events. Rejecting here
-   *     forces the caller to re-capture.
-   */
-  async lockRoom(
-    options: {
-      finalSnapshot?: RoomSnapshot;
-      finalSnapshotSeq?: number;
-      includeFinalSnapshot?: boolean;
-    } = {},
-  ): Promise<void> {
-    if (!this.adminKey || !this.adminVerifier) throw new AdminNotAuthorizedError();
-
-    let snapshot: RoomSnapshot | undefined;
-    let atSeq: number | undefined;
-
-    if (options.includeFinalSnapshot) {
-      if (options.finalSnapshot || options.finalSnapshotSeq !== undefined) {
-        throw new InvalidOutboundPayloadError(
-          'lockRoom: use EITHER {includeFinalSnapshot} OR {finalSnapshot, finalSnapshotSeq}, not both',
-        );
-      }
-      // Edge case: no events consumed yet (fresh room). The initial snapshot
-      // already represents the seq-0 baseline, and the server rejects
-      // atSeq <= existingSnapshotSeq (initial snapshot is also seq 0), so
-      // sending one would always fail. Skip the final-snapshot field entirely
-      // — the lock itself still proceeds and the initial snapshot remains the
-      // baseline for future joiners.
-      if (this.seq > 0) {
-        snapshot = {
-          versionId: 'v1',
-          planMarkdown: this.planMarkdown,
-          annotations: annotationsToArray(this.annotations).map(cloneRoomAnnotation),
-        };
-        atSeq = this.seq;
-      }
-    } else if (options.finalSnapshot !== undefined || options.finalSnapshotSeq !== undefined) {
-      if (options.finalSnapshot === undefined || options.finalSnapshotSeq === undefined) {
-        throw new InvalidOutboundPayloadError(
-          'lockRoom: finalSnapshot and finalSnapshotSeq must be supplied together',
-        );
-      }
-      if (!isRoomSnapshot(options.finalSnapshot)) {
-        throw new InvalidOutboundPayloadError('Invalid finalSnapshot payload');
-      }
-      if (typeof options.finalSnapshotSeq !== 'number' || !Number.isFinite(options.finalSnapshotSeq) || options.finalSnapshotSeq < 0) {
-        throw new InvalidOutboundPayloadError('Invalid finalSnapshotSeq');
-      }
-      // Caller asserts the snapshot content was built from state at this
-      // exact seq. Verify the client's consumed seq still matches — if an
-      // event advanced this.seq between snapshot build and lockRoom(), the
-      // snapshot is stale and we must refuse to label it.
-      if (options.finalSnapshotSeq !== this.seq) {
-        throw new InvalidOutboundPayloadError(
-          `finalSnapshot is stale: built at seq ${options.finalSnapshotSeq} but client consumed seq is ${this.seq}`,
-        );
-      }
-      snapshot = options.finalSnapshot;
-      atSeq = options.finalSnapshotSeq;
-    }
-
-    const cmd: AdminCommand = { type: 'room.lock' };
-    if (snapshot !== undefined && atSeq !== undefined) {
-      // atSeq is captured BEFORE the async encrypt. We've already verified
-      // (or atomically set) that snapshot content is built from exactly atSeq;
-      // incoming events during encryption must not advance the label.
-      cmd.finalSnapshotCiphertext = await encryptSnapshot(this.eventKey, snapshot);
-      cmd.finalSnapshotAtSeq = atSeq;
-    }
-    await this.runAdminCommand(cmd);
-  }
-
-  async unlockRoom(): Promise<void> {
-    if (!this.adminKey || !this.adminVerifier) throw new AdminNotAuthorizedError();
-    await this.runAdminCommand({ type: 'room.unlock' });
   }
 
   async deleteRoom(): Promise<void> {
@@ -1389,9 +1288,7 @@ export class CollabRoomClient {
       const cmdType = pending.command.type;
 
       let shouldResolve = false;
-      if (cmdType === 'room.lock' && status === 'locked') shouldResolve = true;
-      else if (cmdType === 'room.unlock' && status === 'active') shouldResolve = true;
-      else if (cmdType === 'room.delete' && status === 'deleted') shouldResolve = true;
+      if (cmdType === 'room.delete' && status === 'deleted') shouldResolve = true;
 
       if (shouldResolve) {
         clearTimeout(pending.timeoutHandle);

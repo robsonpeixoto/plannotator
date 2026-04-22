@@ -1,7 +1,7 @@
 /**
- * Owns the UI-facing state around lock / unlock / delete commands:
- * the in-flight action (for button disabling + "…ing" labels) and
- * the most recent failure (for the toast surface).
+ * Owns the UI-facing state around the delete command: the in-flight
+ * action (for button disabling + "…ing" labels) and the most recent
+ * failure (for the toast surface).
  *
  * State is single-slot by design: one pending action at a time, one
  * "last error" slot cleared on the next attempt or manual dismiss.
@@ -15,16 +15,18 @@ import type { UseCollabRoomReturn } from './useCollabRoom';
 /**
  * Discriminant for in-flight admin commands. Consumed by the menu,
  * the pending-state chrome, and the error toast so each surface can
- * label itself consistently.
+ * label itself consistently. V1 has a single admin action (delete);
+ * the discriminant is preserved so a future action can slot in without
+ * reshaping every surface that rendered "Failed to delete" etc.
  */
-export type AdminAction = 'lock' | 'unlock' | 'delete';
+export type AdminAction = 'delete';
 
 export interface UseRoomAdminActionsReturn {
   /** Action currently in flight, if any. Drives button disabled + label. */
   pending: AdminAction | undefined;
   /** Most recent failure; null when clear. */
   error: { action: AdminAction; message: string } | null;
-  /** Dispatch a lock/unlock/delete command. No-op when `room` is undefined. */
+  /** Dispatch an admin command. No-op when `room` is undefined. */
   run(action: AdminAction): Promise<void>;
   /** Clear the current error manually (user dismiss from toast). */
   dismissError(): void;
@@ -41,9 +43,7 @@ export function useRoomAdminActions(
     setPending(action);
     setError(null);
     try {
-      if (action === 'lock') await room.lock({ includeFinalSnapshot: true });
-      else if (action === 'unlock') await room.unlock();
-      else if (action === 'delete') await room.deleteRoom();
+      if (action === 'delete') await room.deleteRoom();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError({ action, message });
