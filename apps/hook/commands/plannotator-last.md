@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 ## Message Annotations
 
-!`plannotator annotate-last`
+!`plannotator annotate-last $ARGUMENTS`
 
 ## Your task
 
