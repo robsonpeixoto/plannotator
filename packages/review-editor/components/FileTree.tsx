@@ -107,6 +107,16 @@ export const FileTree: React.FC<FileTreeProps> = ({
       return;
     }
 
+    // Yield keyboard nav when a floating overlay owns the focus — Radix
+    // DropdownMenu / Popover / Dialog handle arrow keys themselves, and the
+    // old native <select> used to absorb these natively. Without this guard,
+    // opening the diff-type menu and pressing Down would also advance the
+    // active file underneath.
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active.closest('[role="menu"], [role="dialog"], [role="listbox"]')) {
+      return;
+    }
+
     if (e.key === 'j' || e.key === 'ArrowDown') {
       e.preventDefault();
       const nextIndex = Math.min(activeFileIndex + 1, files.length - 1);

@@ -63,6 +63,14 @@ export interface ReviewServerOptions {
   diffType?: DiffType;
   /** Git context with branch info and available diff options */
   gitContext?: GitContext;
+  /**
+   * Initial base branch the caller used to compute `rawPatch`. When a caller
+   * overrides the detected default (e.g. Pi's `openCodeReview` accepting a
+   * custom `defaultBranch`), this must be forwarded so the server's internal
+   * `currentBase` state, the `/api/diff` response, and downstream agent
+   * prompts stay consistent with the patch that's already on screen.
+   */
+  initialBase?: string;
   /** Whether URL sharing is enabled (default: true) */
   sharingEnabled?: boolean;
   /** Custom base URL for share links (default: https://share.plannotator.ai) */
@@ -131,8 +139,9 @@ export async function startReviewServer(
   let currentError = options.error;
   // Tracks the base branch the user picked from the UI. Agent review prompts
   // read this (not gitContext.defaultBranch) so they analyze the same diff
-  // the reviewer is currently looking at.
-  let currentBase = gitContext?.defaultBranch || "main";
+  // the reviewer is currently looking at. Honors an explicit initialBase from
+  // the caller — e.g. programmatic Pi callers can request a non-detected base.
+  let currentBase = options.initialBase || gitContext?.defaultBranch || "main";
 
   // Agent jobs — background process manager (late-binds serverUrl via getter)
   let serverUrl = "";

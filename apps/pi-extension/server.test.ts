@@ -385,4 +385,57 @@ describe("pi review server", () => {
       server.stop();
     }
   }, 15_000);
+
+  test("initialBase overrides gitContext.defaultBranch in server state", async () => {
+    // Simulates a programmatic caller (Pi event bus, other extensions) that
+    // opens a review against a non-default base. The server's currentBase —
+    // which drives /api/diff, agent prompts, and file-content fetches — must
+    // honor that override instead of falling back to the detected default.
+    const homeDir = makeTempDir("plannotator-pi-home-");
+    const repoDir = initRepo();
+    process.env.HOME = homeDir;
+    process.chdir(repoDir);
+    process.env.PLANNOTATOR_PORT = String(await reservePort());
+
+    git(repoDir, ["checkout", "-b", "develop"]);
+    writeFileSync(join(repoDir, "develop-file.txt"), "develop\n", "utf-8");
+    git(repoDir, ["add", "develop-file.txt"]);
+    git(repoDir, ["commit", "-m", "develop commit"]);
+    git(repoDir, ["checkout", "-b", "feature/x"]);
+
+    const gitContext = await getGitContext();
+    // Detected default is "main"; caller explicitly wants "develop".
+    expect(gitContext.defaultBranch).toBe("main");
+    const diff = await runGitDiff("branch", "develop");
+
+    const server = await startReviewServer({
+      rawPatch: diff.patch,
+      gitRef: diff.label,
+      error: diff.error,
+      diffType: "branch",
+      gitContext,
+      initialBase: "develop",
+      origin: "pi",
+      htmlContent: "<!doctype html><html><body>review</body></html>",
+    });
+
+    try {
+      const payload = await fetch(`${server.url}/api/diff`).then((r) => r.json()) as {
+        base?: string;
+        gitContext?: { defaultBranch: string };
+      };
+      // The server must echo the caller's override, not the detected default.
+      expect(payload.base).toBe("develop");
+      expect(payload.gitContext?.defaultBranch).toBe("main");
+
+      await fetch(`${server.url}/api/feedback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ approved: false, feedback: "done", annotations: [] }),
+      });
+      await server.waitForDecision();
+    } finally {
+      server.stop();
+    }
+  }, 15_000);
 });

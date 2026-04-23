@@ -146,6 +146,14 @@ export async function startReviewServer(options: {
 	origin?: string;
 	diffType?: DiffType;
 	gitContext?: GitContext;
+	/**
+	 * Initial base branch the caller used to compute `rawPatch`. When a caller
+	 * overrides the detected default (e.g. `openCodeReview({ defaultBranch })`),
+	 * this must be forwarded so the server's internal `currentBase` state, the
+	 * `/api/diff` response, and downstream agent prompts stay consistent with
+	 * the patch that's already on screen.
+	 */
+	initialBase?: string;
 	error?: string;
 	sharingEnabled?: boolean;
 	shareBaseUrl?: string;
@@ -195,8 +203,9 @@ export async function startReviewServer(options: {
 	let currentError = options.error;
 	// Tracks the base branch the user picked from the UI. Agent review prompts
 	// read this (not gitContext.defaultBranch) so they analyze the same diff
-	// the reviewer is currently looking at.
-	let currentBase = options.gitContext?.defaultBranch || "main";
+	// the reviewer is currently looking at. Honors an explicit initialBase from
+	// the caller — e.g. programmatic Pi callers can request a non-detected base.
+	let currentBase = options.initialBase || options.gitContext?.defaultBranch || "main";
 
 	// Agent jobs — background process manager (late-binds serverUrl via getter)
 	let serverUrl = "";
