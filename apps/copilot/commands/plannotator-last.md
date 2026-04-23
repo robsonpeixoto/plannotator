@@ -5,8 +5,10 @@ allowed-tools: shell(plannotator:*)
 
 ## Message Annotations
 
-!`plannotator copilot-last`
+!`plannotator copilot-last $ARGUMENTS`
 
 ## Your task
 
-Address the annotation feedback above. The user has reviewed your last message and provided specific annotations and comments.
+If the output above is empty, OR is a JSON object whose `"decision"` is `"approved"` or `"dismissed"`, the user closed the annotation session without requesting changes. Acknowledge with a single sentence ("Annotation session closed.") and stop. Do not begin any work.
+
+Otherwise the output is either plaintext annotation feedback or a JSON object with `"decision": "annotated"` and a `"feedback"` field. Address the feedback — the user has reviewed your last message and provided specific annotations and comments.
