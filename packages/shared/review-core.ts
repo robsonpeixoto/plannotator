@@ -331,6 +331,7 @@ const WORKTREE_SUB_TYPES = new Set([
   "unstaged",
   "last-commit",
   "branch",
+  "merge-base",
 ]);
 
 export function parseWorktreeDiffType(

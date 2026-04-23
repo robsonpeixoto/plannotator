@@ -915,7 +915,7 @@ const ReviewApp: React.FC = () => {
       const lastColon = rest.lastIndexOf(':');
       if (lastColon !== -1) {
         const sub = rest.slice(lastColon + 1);
-        if (['uncommitted', 'staged', 'unstaged', 'last-commit', 'branch'].includes(sub)) {
+        if (['uncommitted', 'staged', 'unstaged', 'last-commit', 'branch', 'merge-base'].includes(sub)) {
           return { activeWorktreePath: rest.slice(0, lastColon), activeDiffBase: sub };
         }
       }

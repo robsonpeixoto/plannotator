@@ -6,7 +6,9 @@ import { join, resolve as resolvePath } from "node:path";
 import {
   getFileContentsForDiff,
   getGitContext,
+  parseWorktreeDiffType,
   runGitDiff,
+  type DiffType,
   type ReviewGitRuntime,
 } from "./review-core";
 
@@ -198,5 +200,25 @@ describe("review-core", () => {
     );
     expect(newFileContents.oldContent).toBeNull();
     expect(newFileContents.newContent).toBe("brand new\n");
+  });
+
+  test("parseWorktreeDiffType recognises every DiffType suffix, including merge-base", () => {
+    // Regression guard: every local diff type must round-trip through the
+    // worktree-prefixed form. Missing `merge-base` here previously routed
+    // "worktree:/path:merge-base" to { path: "/path:merge-base", subType: "uncommitted" }
+    // which pointed git at a non-existent cwd and silently collapsed the diff mode.
+    const subTypes = [
+      "uncommitted",
+      "staged",
+      "unstaged",
+      "last-commit",
+      "branch",
+      "merge-base",
+    ] as const;
+    for (const sub of subTypes) {
+      const composite = `worktree:/tmp/my-worktree:${sub}` as DiffType;
+      const parsed = parseWorktreeDiffType(composite);
+      expect(parsed).toEqual({ path: "/tmp/my-worktree", subType: sub });
+    }
   });
 });
