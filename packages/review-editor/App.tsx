@@ -990,12 +990,19 @@ const ReviewApp: React.FC = () => {
       // exclude the server's startup cwd — replacing it with the new context's
       // list would duplicate the "Main repo" entry) and `availableBranches`
       // (shared across worktrees of the same repo).
+      //
+      // IMPORTANT: we deliberately do NOT overwrite `currentBranch`. The
+      // WorktreePicker's top "launch" row uses it as a label, and that row
+      // represents the cwd plannotator was launched in — not whichever
+      // worktree is currently active. Freezing `currentBranch` at its
+      // initial-load value keeps that label truthful. `defaultBranch` and
+      // `diffOptions` update because they describe the active diff, which
+      // other UI (empty-state text, diff-type picker) should see fresh.
       if (data.gitContext) {
         setGitContext((prev) => {
           if (!prev) return data.gitContext!;
           return {
             ...prev,
-            currentBranch: data.gitContext!.currentBranch,
             defaultBranch: data.gitContext!.defaultBranch,
             diffOptions: data.gitContext!.diffOptions,
           };
