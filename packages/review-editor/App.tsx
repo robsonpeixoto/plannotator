@@ -946,8 +946,10 @@ const ReviewApp: React.FC = () => {
   // Staging is never available in PR review mode — the server rejects it and the UI shouldn't offer it.
   const canStageFiles = canStageRaw && !prMetadata;
 
-  // Shared helper: fetch a diff switch and update state
-  const fetchDiffSwitch = useCallback(async (fullDiffType: string, baseOverride?: string) => {
+  // Shared helper: fetch a diff switch and update state.
+  // Returns true on success, false on failure — callers that optimistically
+  // updated UI state (e.g. the base picker) can use this to revert.
+  const fetchDiffSwitch = useCallback(async (fullDiffType: string, baseOverride?: string): Promise<boolean> => {
     setIsLoadingDiff(true);
     try {
       const res = await fetch('/api/diff/switch', {
@@ -986,9 +988,11 @@ const ReviewApp: React.FC = () => {
       setPendingSelection(null);
       setDiffError(data.error || null);
       resetStagedFiles();
+      return true;
     } catch (err) {
       console.error('Failed to switch diff:', err);
       setDiffError(err instanceof Error ? err.message : 'Failed to switch diff');
+      return false;
     } finally {
       setIsLoadingDiff(false);
     }
@@ -996,12 +1000,16 @@ const ReviewApp: React.FC = () => {
 
   // Switch the base branch the current diff compares against.
   // Only triggers a refetch when the active mode actually uses a base.
+  // Optimistically updates the picker; reverts if the server-side switch
+  // fails so the chip doesn't lie about what the viewer is actually showing.
   const handleBaseSelect = useCallback(
     async (branch: string) => {
       if (branch === selectedBase) return;
+      const previous = selectedBase;
       setSelectedBase(branch);
       if (activeDiffBase === 'branch' || activeDiffBase === 'merge-base') {
-        await fetchDiffSwitch(diffType, branch);
+        const ok = await fetchDiffSwitch(diffType, branch);
+        if (!ok) setSelectedBase(previous);
       }
     },
     [selectedBase, activeDiffBase, diffType, fetchDiffSwitch],
