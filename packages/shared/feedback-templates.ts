@@ -3,7 +3,12 @@
  *
  * The plan deny template was tuned in #224 / commit 3dca977 to use strong
  * directive framing — Claude was ignoring softer phrasing.
+ *
+ * This module now routes through the configurable prompt pipeline in prompts.ts.
+ * The function signature is preserved for backward compatibility.
  */
+
+import { getPlanDeniedPrompt, buildPlanFileRule } from "./prompts";
 
 export interface PlanDenyFeedbackOptions {
   planFilePath?: string;
@@ -14,9 +19,9 @@ export const planDenyFeedback = (
   toolName: string = "ExitPlanMode",
   options?: PlanDenyFeedbackOptions,
 ): string => {
-  const planFileRule = options?.planFilePath
-    ? `- Your plan is saved at: ${options.planFilePath}\n  You can edit this file to make targeted changes, then pass its path to ${toolName}.\n`
-    : "";
-
-  return `YOUR PLAN WAS NOT APPROVED.\n\nYou MUST revise the plan to address ALL of the feedback below before calling ${toolName} again.\n\nRules:\n${planFileRule}- Do not resubmit the same plan unchanged.\n- Do NOT change the plan title (first # heading) unless the user explicitly asks you to.\n\n${feedback || "Plan changes requested"}`;
+  return getPlanDeniedPrompt(null, undefined, {
+    toolName,
+    planFileRule: buildPlanFileRule(toolName, options?.planFilePath),
+    feedback: feedback || "Plan changes requested",
+  });
 };

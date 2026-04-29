@@ -21,7 +21,11 @@ import {
 import { getGitContext, runGitDiffWithContext } from "@plannotator/server/git";
 import { parsePRUrl, checkPRAuth, fetchPR, getCliName, getMRLabel, getMRNumberLabel, getDisplayRepo } from "@plannotator/server/pr";
 import { loadConfig, resolveDefaultDiffType, resolveUseJina } from "@plannotator/shared/config";
-import { getReviewApprovedPrompt } from "@plannotator/shared/prompts";
+import {
+  getReviewApprovedPrompt,
+  getReviewDeniedSuffix,
+  getAnnotateFileFeedbackPrompt,
+} from "@plannotator/shared/prompts";
 import { resolveMarkdownFile, resolveUserPath, hasMarkdownFiles } from "@plannotator/shared/resolve-file";
 import { FILE_BROWSER_EXCLUDED } from "@plannotator/shared/reference-common";
 import { htmlToMarkdown } from "@plannotator/shared/html-to-markdown";
@@ -130,7 +134,7 @@ export async function handleReviewCommand(
         ? getReviewApprovedPrompt("opencode")
         : isPRMode
           ? result.feedback
-          : `${result.feedback}\n\nPlease address this feedback.`;
+          : `${result.feedback}${getReviewDeniedSuffix("opencode")}`;
 
       try {
         await client.session.prompt({
@@ -291,7 +295,11 @@ export async function handleAnnotateCommand(
           body: {
             parts: [{
               type: "text",
-              text: `# Markdown Annotations\n\nFile: ${absolutePath}\n\n${result.feedback}\n\nPlease address the annotation feedback above.`,
+              text: getAnnotateFileFeedbackPrompt("opencode", undefined, {
+                fileHeader: "File",
+                filePath: absolutePath,
+                feedback: result.feedback,
+              }),
             }],
           },
         });
