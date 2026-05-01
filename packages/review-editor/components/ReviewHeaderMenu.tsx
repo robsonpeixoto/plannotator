@@ -8,18 +8,12 @@ import {
 import { useTheme } from '@plannotator/ui/components/ThemeProvider';
 
 interface ReviewHeaderMenuProps {
-  isPanelOpen: boolean;
-  annotationCount: number;
-  onTogglePanel: () => void;
   onOpenSettings: () => void;
   onOpenExport: () => void;
   appVersion: string;
 }
 
 export const ReviewHeaderMenu: React.FC<ReviewHeaderMenuProps> = ({
-  isPanelOpen,
-  annotationCount,
-  onTogglePanel,
   onOpenSettings,
   onOpenExport,
   appVersion,
@@ -50,22 +44,6 @@ export const ReviewHeaderMenu: React.FC<ReviewHeaderMenuProps> = ({
     >
       {({ closeMenu }) => (
         <>
-          <ActionMenuItem
-            onClick={() => {
-              closeMenu();
-              onTogglePanel();
-            }}
-            icon={<AnnotationsIcon />}
-            label={isPanelOpen ? 'Hide Annotations' : 'Show Annotations'}
-            badge={annotationCount > 0 ? (
-              <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-                {annotationCount}
-              </span>
-            ) : undefined}
-          />
-
-          <ActionMenuDivider />
-
           <div className="px-3 py-2 space-y-1.5">
             <ActionMenuSectionLabel>Theme</ActionMenuSectionLabel>
             <div className="flex items-center gap-1 rounded-lg bg-muted/50 p-0.5">

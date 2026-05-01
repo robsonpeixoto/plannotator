@@ -55,6 +55,7 @@ interface FileTreeProps {
   onSelectAllFiles?: () => void;
   isAllFilesActive?: boolean;
   scrollHighlightIndex?: number;
+  onClose?: () => void;
 }
 
 export const FileTree: React.FC<FileTreeProps> = ({
@@ -101,6 +102,7 @@ export const FileTree: React.FC<FileTreeProps> = ({
   onSelectAllFiles,
   isAllFilesActive = false,
   scrollHighlightIndex,
+  onClose,
 }) => {
   const isSearchVisible = !!onSearchChange && (isSearchOpen || !!searchQuery.trim());
 
@@ -215,9 +217,22 @@ export const FileTree: React.FC<FileTreeProps> = ({
       {/* Header */}
       <div className="px-3 flex items-center border-b border-border/50" style={{ height: 'var(--panel-header-h)' }}>
         <div className="w-full flex items-center justify-between">
-          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            {searchQuery.trim() ? 'Results' : 'Files'}
-          </span>
+          <div className="flex items-center gap-1.5">
+            {onClose && (
+              <button
+                onClick={onClose}
+                className="flex items-center justify-center w-5 h-5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
+                title="Close file tree"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+            )}
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              {searchQuery.trim() ? 'Results' : 'Files'}
+            </span>
+          </div>
           <div className="flex items-center gap-1.5">
             {stagedFiles && stagedFiles.size > 0 && (
               <>

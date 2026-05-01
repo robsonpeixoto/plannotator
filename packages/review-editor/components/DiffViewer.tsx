@@ -13,6 +13,44 @@ import { OverlayScrollArea } from '@plannotator/ui/components/OverlayScrollArea'
 import { useOverlayViewport } from '@plannotator/ui/hooks/useOverlayViewport';
 import { getEnabledLabels } from './ConventionalLabelPicker';
 import { FileHeader } from './FileHeader';
+
+function getLineNumberFromNode(node: Node | null): number | null {
+  let current: Node | null = node;
+  if (current?.nodeType === Node.TEXT_NODE) current = current.parentNode;
+  while (current) {
+    if (current instanceof HTMLElement) {
+      const line = current.closest('[data-line]')?.getAttribute('data-line');
+      if (line) {
+        const parsed = Number(line);
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+    }
+    current = current.parentNode;
+  }
+  return null;
+}
+
+function getSideFromNode(node: Node | null): 'additions' | 'deletions' {
+  let current: Node | null = node;
+  if (current?.nodeType === Node.TEXT_NODE) current = current.parentNode;
+  while (current) {
+    if (current instanceof HTMLElement) {
+      if (current.hasAttribute('data-deletions')) return 'deletions';
+      if (current.hasAttribute('data-additions')) return 'additions';
+    }
+    current = current.parentNode;
+  }
+  return 'additions';
+}
+
+function getDiffSelection(root: HTMLElement | null): Selection | null {
+  const shadowRoot = root?.querySelector('diffs-container')?.shadowRoot;
+  const shadowSelection = (shadowRoot as (ShadowRoot & { getSelection?: () => Selection | null }) | null)
+    ?.getSelection?.();
+  return shadowSelection && !shadowSelection.isCollapsed
+    ? shadowSelection
+    : window.getSelection();
+}
 import { InlineAnnotation } from './InlineAnnotation';
 import { InlineAIMarker } from './InlineAIMarker';
 import { AnnotationToolbar } from './AnnotationToolbar';
@@ -209,6 +247,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   const { ref: containerRef, viewport, onViewportReady } =
     useOverlayViewport<HTMLDivElement>();
   const splitSurfaceRef = useRef<HTMLDivElement>(null);
+  const diffContentRef = useRef<HTMLDivElement>(null);
   const [fileCommentAnchor, setFileCommentAnchor] = useState<HTMLElement | null>(null);
 
   // Resizable split pane — only applies when Pierre renders a two-column grid
@@ -521,6 +560,21 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
     );
   }, [toolbar.handleLineSelectionEnd]);
 
+  const handleDiffMouseUp = useCallback(() => {
+    requestAnimationFrame(() => {
+      const selection = getDiffSelection(diffContentRef.current);
+      if (!selection || selection.isCollapsed || !selection.toString().trim()) return;
+      const anchorLine = getLineNumberFromNode(selection.anchorNode);
+      const focusLine = getLineNumberFromNode(selection.focusNode);
+      if (anchorLine == null || focusLine == null) return;
+      const side = getSideFromNode(selection.anchorNode);
+      const start = Math.min(anchorLine, focusLine);
+      const end = Math.max(anchorLine, focusLine);
+      toolbar.handleLineSelectionEnd({ start, end, side });
+      selection.removeAllRanges();
+    });
+  }, [toolbar.handleLineSelectionEnd]);
+
   // Token interaction handlers (code area clicks)
   const handleTokenClick = useCallback((props: DiffTokenEventBaseProps, event: MouseEvent) => {
     toolbar.handleTokenClick(props, event);
@@ -563,7 +617,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
         onViewportReady={onViewportReady}
         onMouseMove={toolbar.handleMouseMove}
       >
-        <div className="p-4">
+        <div className="p-4" ref={diffContentRef} onMouseUp={handleDiffMouseUp}>
           <div ref={splitSurfaceRef} className="relative min-w-0" style={splitGridStyle}>
             {isSplitLayout && diffOverflow !== 'wrap' && (
               <div

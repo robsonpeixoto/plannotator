@@ -134,8 +134,9 @@ const reviewShortcuts: ShortcutSection[] = [
   {
     title: 'File Actions',
     shortcuts: [
-      { keys: ['⇧', 'V'], desc: 'Toggle viewed' },
-      { keys: ['⇧', 'A'], desc: 'Toggle git add / stage' },
+      { keys: ['V'], desc: 'Toggle viewed', hint: 'In all-files view, also collapses the file' },
+      { keys: ['A'], desc: 'Toggle git add / stage' },
+      { keys: ['C'], desc: 'Collapse / expand file', hint: 'In all-files view, toggles the focused file' },
     ],
   },
   {

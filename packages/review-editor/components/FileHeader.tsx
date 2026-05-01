@@ -111,7 +111,7 @@ export const FileHeader: React.FC<FileHeaderProps> = ({
                 ? 'bg-success/15 text-success'
                 : 'text-muted-foreground hover:text-foreground hover:bg-muted'
             }`}
-            title={isViewed ? "Mark as not viewed (Shift+V)" : "Mark as viewed (Shift+V)"}
+            title={isViewed ? "Mark as not viewed (V)" : "Mark as viewed (V)"}
           >
             {isViewed ? (
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -136,7 +136,7 @@ export const FileHeader: React.FC<FileHeaderProps> = ({
                   ? 'bg-primary/15 text-primary'
                   : 'text-muted-foreground hover:text-foreground hover:bg-muted'
             }`}
-            title={isStaged ? "Unstage this file (Shift+A)" : "Stage this file (Shift+A)"}
+            title={isStaged ? "Unstage this file (A)" : "Stage this file (A)"}
           >
             {isStaging ? (
               <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">

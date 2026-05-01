@@ -188,19 +188,44 @@ export const AllFilesDiffView: React.FC<AllFilesDiffViewProps> = ({
     return () => container.removeEventListener('scroll', onScroll);
   }, [onVisibleFileChange, sortedFiles, collapsedFiles]);
 
-  // [ and ] to scroll between files
+  // Keyboard shortcuts for all-files mode: [/] scroll, v viewed+collapse, a stage, c collapse
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key !== '[' && e.key !== ']') return;
       const el = e.target as HTMLElement | null;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
       if (e.metaKey || e.ctrlKey || e.shiftKey) return;
+
+      const currentPath = activeFilePath || visibleFileRef.current;
+
+      if (e.key === 'c' && currentPath) {
+        e.preventDefault();
+        toggleCollapse(currentPath);
+        return;
+      }
+
+      if (e.key === 'v' && currentPath) {
+        e.preventDefault();
+        onToggleViewed?.(currentPath);
+        setCollapsedFiles(prev => {
+          const next = new Set(prev);
+          next.add(currentPath);
+          return next;
+        });
+        return;
+      }
+
+      if (e.key === 'a' && currentPath && canStageFiles) {
+        e.preventDefault();
+        onStage?.(currentPath);
+        return;
+      }
+
+      if (e.key !== '[' && e.key !== ']') return;
 
       e.preventDefault();
       const expandedFiles = sortedFiles.filter(f => !collapsedFiles.has(f.path));
       if (expandedFiles.length === 0) return;
 
-      const currentPath = activeFilePath;
       const currentIdx = currentPath ? expandedFiles.findIndex(f => f.path === currentPath) : -1;
 
       let targetIdx: number;
