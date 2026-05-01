@@ -94,6 +94,7 @@ export interface ReviewState {
   // Diff navigation
   openDiffFile: (filePath: string) => void;
   onAllFilesVisibleFileChange: (filePath: string | null) => void;
+  isAllFilesActive: boolean;
 
   // Tour
   openTourPanel: (jobId: string) => void;

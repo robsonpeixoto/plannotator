@@ -650,6 +650,7 @@ const ReviewApp: React.FC = () => {
   // Open the all-files panel on first load.
   useEffect(() => {
     if (!dockApi || !needsInitialDiffPanel.current || files.length === 0) return;
+    needsInitialDiffPanel.current = false;
     openAllFilesPanel();
   }, [dockApi, files, openAllFilesPanel]);
 
@@ -1321,6 +1322,7 @@ const ReviewApp: React.FC = () => {
     platformUser,
     openDiffFile,
     onAllFilesVisibleFileChange: setAllFilesVisibleFile,
+    isAllFilesActive,
     openTourPanel: handleOpenTour,
   }), [
     files, activeFileIndex, diffStyle, diffOverflow, diffIndicators,

@@ -79,7 +79,7 @@ export const LazyFileDiff: React.FC<LazyFileDiffProps> = ({
       })
       .catch(() => {});
     return () => controller.abort();
-  }, [mounted, file.path, file.oldPath, reviewBase]);
+  }, [mounted, file.path, file.oldPath, file.patch, reviewBase]);
 
   const fileDiff = useMemo(() => {
     if (!fileContents) return baseDiff;

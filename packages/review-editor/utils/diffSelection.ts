@@ -28,10 +28,13 @@ export function getSideFromNode(node: Node | null): 'additions' | 'deletions' {
 }
 
 export function getDiffSelection(root: HTMLElement | null): Selection | null {
-  const shadowRoot = root?.querySelector('diffs-container')?.shadowRoot;
-  const shadowSelection = (shadowRoot as (ShadowRoot & { getSelection?: () => Selection | null }) | null)
-    ?.getSelection?.();
-  return shadowSelection && !shadowSelection.isCollapsed
-    ? shadowSelection
-    : window.getSelection();
+  if (!root) return window.getSelection();
+  const containers = root.querySelectorAll('diffs-container');
+  for (const container of containers) {
+    const sr = container.shadowRoot;
+    if (!sr) continue;
+    const sel = (sr as ShadowRoot & { getSelection?: () => Selection | null }).getSelection?.();
+    if (sel && !sel.isCollapsed) return sel;
+  }
+  return window.getSelection();
 }

@@ -36,6 +36,7 @@ export const ReviewAllFilesDiffPanel: React.FC<IDockviewPanelProps> = () => {
       prUrl={state.prMetadata?.url}
       prDiffScope={state.prDiffScope}
       onVisibleFileChange={state.onAllFilesVisibleFileChange}
+      isActive={state.isAllFilesActive}
     />
   );
 };

@@ -45,6 +45,7 @@ interface AllFilesDiffViewProps {
   prUrl?: string;
   prDiffScope?: string;
   onVisibleFileChange?: (filePath: string | null) => void;
+  isActive?: boolean;
 }
 
 export const AllFilesDiffView: React.FC<AllFilesDiffViewProps> = ({
@@ -76,11 +77,17 @@ export const AllFilesDiffView: React.FC<AllFilesDiffViewProps> = ({
   prUrl,
   prDiffScope,
   onVisibleFileChange,
+  isActive = true,
 }) => {
   const pierreTheme = usePierreTheme({ fontFamily, fontSize });
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
   const pendingToolbarRange = useRef<SelectedLineRange | null>(null);
   const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    setActiveFilePath(null);
+    setCollapsedFiles(new Set());
+  }, [files]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const headerRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const conventionalCommentsEnabled = useConfigValue('conventionalComments');
@@ -191,6 +198,7 @@ export const AllFilesDiffView: React.FC<AllFilesDiffViewProps> = ({
 
   // Keyboard shortcuts for all-files mode: [/] scroll, v viewed+collapse, a stage, c collapse
   useEffect(() => {
+    if (!isActive) return;
     const handler = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
@@ -245,7 +253,7 @@ export const AllFilesDiffView: React.FC<AllFilesDiffViewProps> = ({
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [sortedFiles, collapsedFiles, activeFilePath, onToggleViewed, canStageFiles, onStage]);
+  }, [isActive, sortedFiles, collapsedFiles, activeFilePath, toggleCollapse, onToggleViewed, canStageFiles, onStage]);
 
   // Click-and-drag line selection in diff content
   useEffect(() => {
