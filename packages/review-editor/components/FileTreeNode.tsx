@@ -15,6 +15,8 @@ interface FileTreeNodeProps {
   getAnnotationCount: (filePath: string) => number;
   stagedFiles?: Set<string>;
   scrollHighlightIndex?: number;
+  /** Absolute repo root used to build the "Copy full path" menu item. Null in PR-review mode (files aren't on local disk). */
+  repoRoot?: string | null;
 }
 
 function hasVisibleChildren(
@@ -47,6 +49,7 @@ export const FileTreeNodeItem: React.FC<FileTreeNodeProps> = ({
   getAnnotationCount,
   stagedFiles,
   scrollHighlightIndex,
+  repoRoot,
 }) => {
   const paddingLeft = 4 + node.depth * 8;
 
@@ -96,6 +99,7 @@ export const FileTreeNodeItem: React.FC<FileTreeNodeProps> = ({
             getAnnotationCount={getAnnotationCount}
             stagedFiles={stagedFiles}
             scrollHighlightIndex={scrollHighlightIndex}
+            repoRoot={repoRoot}
           />
         ))}
       </>
@@ -170,6 +174,14 @@ export const FileTreeNodeItem: React.FC<FileTreeNodeProps> = ({
           >
             Copy filename
           </ContextMenu.Item>
+          {repoRoot && (
+            <ContextMenu.Item
+              onSelect={() => navigator.clipboard.writeText(`${repoRoot.replace(/\/$/, '')}/${node.path}`)}
+              className="flex items-center gap-2 mx-1 px-2 py-1.5 text-xs rounded cursor-pointer outline-none text-foreground/80 data-[highlighted]:bg-muted data-[highlighted]:text-foreground"
+            >
+              Copy full path
+            </ContextMenu.Item>
+          )}
         </ContextMenu.Content>
       </ContextMenu.Portal>
     </ContextMenu.Root>
