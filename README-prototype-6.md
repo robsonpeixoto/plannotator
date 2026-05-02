@@ -17,14 +17,14 @@
 </p>
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=a_AT7cEN_9I"><img src="https://img.shields.io/badge/▶_Watch_demo-red?style=flat-square&logo=youtube&logoColor=white" alt="Watch demo" /></a> &middot; <a href="https://plannotator.ai/docs/getting-started/installation/">Install</a> &middot; <a href="https://plannotator.ai/docs/">Docs</a> &middot; <a href="https://share.plannotator.ai">Try it live</a>
+  <a href="https://plannotator.ai/docs/getting-started/installation/">Install</a> &middot; <a href="https://plannotator.ai/docs/">Docs</a> &middot; <a href="https://share.plannotator.ai">Try it live</a>
 </p>
 
 ---
 
 ## Features
 
-### Plan Review
+### Plan Review &nbsp; <a href="https://www.youtube.com/watch?v=a_AT7cEN_9I"><img src="https://img.shields.io/badge/▶_Watch_demo-red?style=flat-square&logo=youtube&logoColor=white" alt="Watch demo" /></a>
 
 <table>
 <tr>
