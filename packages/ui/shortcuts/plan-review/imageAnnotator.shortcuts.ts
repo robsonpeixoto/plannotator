@@ -36,6 +36,13 @@ export const imageAnnotatorShortcuts = defineShortcutScope({
       hint: 'Escape blurs the image name field first when it is focused.',
       displayOrder: 50,
     },
+    confirmName: {
+      description: 'Confirm image name',
+      bindings: ['Enter'],
+      section: 'Image Annotator',
+      hint: 'Available while the image name field is focused.',
+      displayOrder: 60,
+    },
   },
 });
 

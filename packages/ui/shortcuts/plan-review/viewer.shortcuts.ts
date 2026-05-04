@@ -11,6 +11,13 @@ export const viewerShortcuts = defineShortcutScope({
       section: 'Annotations',
       displayOrder: 25,
     },
+    closeLightbox: {
+      description: 'Close image lightbox',
+      bindings: ['Escape'],
+      section: 'Annotations',
+      hint: 'Available while an image is open in the lightbox.',
+      displayOrder: 70,
+    },
   },
 });
 

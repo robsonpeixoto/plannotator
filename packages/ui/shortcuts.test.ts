@@ -94,9 +94,14 @@ describe('shortcuts', () => {
       'Actions',
       'Search',
       'Layout',
+      'File Actions',
       'File Navigation',
+      'All-Files View',
       'Annotations',
+      'Suggestion Editor',
+      'AI Assistant',
       'PR Comments',
+      'Tour',
     ]);
   });
 

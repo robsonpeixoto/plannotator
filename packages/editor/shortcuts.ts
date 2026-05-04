@@ -1,4 +1,5 @@
 import {
+  annotationPanelShortcuts,
   annotationToolbarShortcuts,
   commentPopoverShortcuts,
   createShortcutRegistry,
@@ -79,6 +80,7 @@ const sharedPlanSurfaceShortcuts = [
   annotationToolbarShortcuts,
   viewerShortcuts,
   commentPopoverShortcuts,
+  annotationPanelShortcuts,
   imageAnnotatorShortcuts,
 ] as const;
 

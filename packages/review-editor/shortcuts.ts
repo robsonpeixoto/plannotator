@@ -3,9 +3,13 @@ import {
   createShortcutRegistry,
   createShortcutScopeHook,
   defineShortcutScope,
+  reviewAiShortcuts,
+  reviewAllFilesDiffShortcuts,
   reviewAnnotationToolbarShortcuts,
   reviewFileTreeShortcuts,
   reviewPrCommentsShortcuts,
+  reviewSuggestionModalShortcuts,
+  reviewTourDialogShortcuts,
   type ShortcutSurface,
 } from '@plannotator/ui/shortcuts';
 
@@ -76,6 +80,20 @@ export const reviewEditorShortcuts = defineShortcutScope({
       hint: 'Available in dev builds only.',
       displayOrder: 30,
     },
+    toggleViewed: {
+      description: 'Toggle file viewed',
+      bindings: ['V'],
+      section: 'File Actions',
+      hint: 'Marks the active diff file as viewed (and auto-collapses in all-files view).',
+      displayOrder: 10,
+    },
+    stageFile: {
+      description: 'Stage current file',
+      bindings: ['A'],
+      section: 'File Actions',
+      hint: 'Available when staging is supported (not in PR review mode).',
+      displayOrder: 20,
+    },
   },
 });
 
@@ -85,8 +103,12 @@ export const useReviewEditorDoubleTap = createDoubleTapShortcutsHook(reviewEdito
 export const reviewSettingsShortcutRegistry = createShortcutRegistry([
   reviewEditorShortcuts,
   reviewFileTreeShortcuts,
+  reviewAllFilesDiffShortcuts,
   reviewAnnotationToolbarShortcuts,
+  reviewSuggestionModalShortcuts,
+  reviewAiShortcuts,
   reviewPrCommentsShortcuts,
+  reviewTourDialogShortcuts,
 ] as const);
 
 export const codeReviewSurface: ShortcutSurface = {
