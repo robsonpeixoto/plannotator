@@ -833,21 +833,19 @@ describe("resolveSessionLogByAncestorPids", () => {
       // Metadata still points to old session (stale after /clear)
       writeSessionMeta(sessionsDir, 400, { sessionId: oldSessionId, cwd });
 
-      // Both logs exist; new one is more recently modified
-      writeSessionLog(projectsDir, cwd, oldSessionId, buildLog(
+      // Both logs exist; force mtime ordering via utimes
+      const { utimesSync } = require("node:fs");
+      const oldLog = writeSessionLog(projectsDir, cwd, oldSessionId, buildLog(
         userPrompt("hello"),
         assistantText("msg_old", "Doing well, thanks!")
       ));
+      const past = new Date(Date.now() - 5000);
+      utimesSync(oldLog, past, past);
 
-      // Small delay to ensure mtime ordering
       const newLog = writeSessionLog(projectsDir, cwd, newSessionId, buildLog(
         userPrompt("Why is the sky blue?"),
         assistantText("msg_new", "Rayleigh scattering")
       ));
-
-      // Touch the new file to guarantee it's newer
-      const { utimesSync } = require("node:fs");
-      utimesSync(newLog, new Date(), new Date());
 
       const result = resolveSessionLogByAncestorPids({
         startPid: 400,
@@ -874,20 +872,20 @@ describe("resolveSessionLogByAncestorPids", () => {
       writeSessionMeta(sessionsDir, 400, { sessionId: sessionA, cwd });
       writeSessionMeta(sessionsDir, 500, { sessionId: sessionB, cwd });
 
-      // Terminal 1's log
+      // Terminal 1's log (older)
+      const { utimesSync } = require("node:fs");
       const logA = writeSessionLog(projectsDir, cwd, sessionA, buildLog(
         userPrompt("hello from terminal 1"),
         assistantText("msg_a", "Response in terminal 1")
       ));
+      const past = new Date(Date.now() - 5000);
+      utimesSync(logA, past, past);
 
       // Terminal 2's log (more recently modified)
       const logB = writeSessionLog(projectsDir, cwd, sessionB, buildLog(
         userPrompt("hello from terminal 2"),
         assistantText("msg_b", "Response in terminal 2")
       ));
-
-      const { utimesSync } = require("node:fs");
-      utimesSync(logB, new Date(), new Date());
 
       // From terminal 1's process tree, should get terminal 1's log
       const result = resolveSessionLogByAncestorPids({
