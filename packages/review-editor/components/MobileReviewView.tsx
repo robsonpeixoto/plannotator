@@ -520,6 +520,18 @@ export const MobileReviewView: React.FC<MobileReviewViewProps> = ({
     });
   }, []);
 
+  // Closing the annotation sheet also has to clean up after the iOS
+  // keyboard: blur whatever's focused and reset any scroll offset the
+  // keyboard introduced. Without this the page can keep an empty
+  // strip below the app once the keyboard dismisses.
+  const closeAnnotationSheet = useCallback(() => {
+    setIsSheetOpen(false);
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    requestAnimationFrame(() => window.scrollTo(0, 0));
+  }, []);
+
   const handleSaveAnnotation = useCallback(
     (type: CodeAnnotationType, text: string) => {
       if (!selection) return;
@@ -527,15 +539,15 @@ export const MobileReviewView: React.FC<MobileReviewViewProps> = ({
       if (!filePath) return;
       onAddAnnotation(filePath, selection.side, selection.start, selection.end, type, text);
       setSelection(null);
-      setIsSheetOpen(false);
+      closeAnnotationSheet();
     },
-    [selection, files, onAddAnnotation],
+    [selection, files, onAddAnnotation, closeAnnotationSheet],
   );
 
   const selectionFilePath = selection ? files[selection.fileIdx]?.path : undefined;
 
   return (
-    <div className="h-[100dvh] flex flex-col bg-background overflow-hidden">
+    <div className="fixed inset-0 flex flex-col bg-background overflow-hidden">
       {/* ---------- Header ---------- */}
       <header className="px-3 py-2 border-b border-border/50 bg-card/80 backdrop-blur-xl flex items-center gap-1 z-10">
         <div className="min-w-0 flex-1">
@@ -703,7 +715,7 @@ export const MobileReviewView: React.FC<MobileReviewViewProps> = ({
         <AnnotationSheet
           selection={selection}
           filePath={selectionFilePath}
-          onCancel={() => setIsSheetOpen(false)}
+          onCancel={closeAnnotationSheet}
           onSave={handleSaveAnnotation}
         />
       )}
