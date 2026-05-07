@@ -708,18 +708,22 @@ export const MobileReviewView: React.FC<MobileReviewViewProps> = ({
         />
       )}
 
-      {/* ---------- Settings (renders its own modal when externalOpen is true) ---------- */}
-      <Settings
-        taterMode={false}
-        onTaterModeChange={() => {}}
-        onIdentityChange={onIdentityChange}
-        origin={origin}
-        mode="review"
-        aiProviders={aiProviders}
-        gitUser={gitUser}
-        externalOpen={isSettingsOpen}
-        onExternalClose={() => setIsSettingsOpen(false)}
-      />
+      {/* ---------- Settings (renders its own modal when externalOpen is true) ----------
+          The Settings component always renders its own trigger button. We control
+          it via externalOpen, so the trigger is hidden — same pattern desktop uses. */}
+      <div className="hidden" aria-hidden="true">
+        <Settings
+          taterMode={false}
+          onTaterModeChange={() => {}}
+          onIdentityChange={onIdentityChange}
+          origin={origin}
+          mode="review"
+          aiProviders={aiProviders}
+          gitUser={gitUser}
+          externalOpen={isSettingsOpen}
+          onExternalClose={() => setIsSettingsOpen(false)}
+        />
+      </div>
     </div>
   );
 };
