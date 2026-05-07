@@ -232,7 +232,7 @@ const FileCard: React.FC<FileCardProps> = ({
                       {line.kind === 'add' && line.newNum ? line.newNum : line.kind === 'del' && line.oldNum ? line.oldNum : ''}
                     </span>
                     <span className="select-none w-3 flex-shrink-0 opacity-60">{linePrefix[line.kind]}</span>
-                    <span className="whitespace-pre flex-1">{line.text || ' '}</span>
+                    <span className="select-none whitespace-pre flex-1">{line.text || ' '}</span>
                   </>
                 );
                 if (tappable && side && lineNum != null) {
@@ -241,9 +241,10 @@ const FileCard: React.FC<FileCardProps> = ({
                       key={i}
                       type="button"
                       onClick={() => onTapLine(fileIdx, side, lineNum)}
-                      className={`flex w-full text-left px-1 border-l-2 ${lineClass[line.kind]} ${
-                        selected ? 'border-primary ring-1 ring-primary/40' : 'border-transparent'
-                      } active:opacity-70`}
+                      style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', touchAction: 'manipulation' } as React.CSSProperties}
+                      className={`select-none flex w-full text-left px-1 py-0.5 border-l-2 ${lineClass[line.kind]} ${
+                        selected ? 'border-primary ring-1 ring-primary bg-primary/5' : 'border-transparent'
+                      } active:opacity-60`}
                     >
                       {Inner}
                     </button>
@@ -534,7 +535,7 @@ export const MobileReviewView: React.FC<MobileReviewViewProps> = ({
   const selectionFilePath = selection ? files[selection.fileIdx]?.path : undefined;
 
   return (
-    <div className="h-screen flex flex-col bg-background overflow-hidden">
+    <div className="h-[100dvh] flex flex-col bg-background overflow-hidden">
       {/* ---------- Header ---------- */}
       <header className="px-3 py-2 border-b border-border/50 bg-card/80 backdrop-blur-xl flex items-center gap-1 z-10">
         <div className="min-w-0 flex-1">
@@ -587,6 +588,16 @@ export const MobileReviewView: React.FC<MobileReviewViewProps> = ({
         </button>
       </header>
 
+      {/* Selection banner — confirms a tap landed and shows the active range. */}
+      {selection && (
+        <div className="px-3 py-1.5 text-xs bg-primary/15 text-primary border-b border-primary/30 text-center font-medium">
+          {selection.start === selection.end
+            ? `Line ${selection.start}`
+            : `Lines ${selection.start}–${selection.end}`}{' '}
+          selected — tap [Annotate] below
+        </div>
+      )}
+
       <main className="flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-3 pb-24">
         {files.length === 0 ? (
           <div className="h-full flex items-center justify-center">
@@ -617,7 +628,7 @@ export const MobileReviewView: React.FC<MobileReviewViewProps> = ({
                 file={file}
                 fileIdx={idx}
                 annotations={annotations}
-                defaultOpen={files.length === 1 || (files.length <= 3 && idx === 0)}
+                defaultOpen={idx === 0}
                 selection={selection}
                 onTapLine={handleTapLine}
                 onDeleteAnnotation={onDeleteAnnotation}
@@ -628,7 +639,10 @@ export const MobileReviewView: React.FC<MobileReviewViewProps> = ({
       </main>
 
       {/* ---------- Sticky bottom bar ---------- */}
-      <div className="border-t border-border/50 bg-card/90 backdrop-blur-xl px-3 py-2.5 flex items-center gap-2 z-20">
+      <div
+        className="border-t border-border/50 bg-card/90 backdrop-blur-xl px-3 py-2.5 flex items-center gap-2 z-20"
+        style={{ paddingBottom: `calc(0.625rem + env(safe-area-inset-bottom))` }}
+      >
         {selection ? (
           <>
             <div className="min-w-0 flex-1">
