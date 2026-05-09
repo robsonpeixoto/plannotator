@@ -98,7 +98,10 @@ export function useSharing(
   setGlobalAttachments: React.Dispatch<React.SetStateAction<ImageAttachment[]>>,
   onSharedLoad?: () => void,
   shareBaseUrl?: string,
-  pasteApiUrl?: string
+  pasteApiUrl?: string,
+  rawHtml?: string,
+  setRawHtml?: (h: string) => void,
+  setRenderAs?: (m: 'markdown' | 'html') => void,
 ): UseSharingResult {
   const [isSharedSession, setIsSharedSession] = useState(false);
   const [isLoadingShared, setIsLoadingShared] = useState(true);
@@ -136,7 +139,13 @@ export function useSharing(
 
         const payload = await loadFromPasteId(pasteId, pasteFromFragment ?? pasteApiUrl, encryptionKey);
         if (payload) {
-          setMarkdown(payload.p);
+          if (payload.h && payload.r === 'html') {
+            setRawHtml?.(payload.h);
+            setRenderAs?.('html');
+            setMarkdown('');
+          } else {
+            setMarkdown(payload.p);
+          }
 
           const restoredAnnotations = fromShareable(payload.a, payload.d, payload.s);
           setAnnotations(restoredAnnotations);
@@ -174,8 +183,13 @@ export function useSharing(
       const payload = await parseShareHash();
 
       if (payload) {
-        // Set plan content
-        setMarkdown(payload.p);
+        if (payload.h && payload.r === 'html') {
+          setRawHtml?.(payload.h);
+          setRenderAs?.('html');
+          setMarkdown('');
+        } else {
+          setMarkdown(payload.p);
+        }
 
         // Convert shareable annotations to full annotations
         const restoredAnnotations = fromShareable(payload.a, payload.d, payload.s);
@@ -238,15 +252,15 @@ export function useSharing(
   // Generate share URL when markdown or annotations change
   const refreshShareUrl = useCallback(async () => {
     try {
-      const url = await generateShareUrl(markdown, annotations, globalAttachments, shareBaseUrl);
-      setShareUrl(url);
-      setShareUrlSize(formatUrlSize(url));
+      const url = await generateShareUrl(markdown, annotations, globalAttachments, shareBaseUrl, rawHtml);
+      setShareUrl(url ?? '');
+      setShareUrlSize(url ? formatUrlSize(url) : '');
     } catch (e) {
       console.error('Failed to generate share URL:', e);
       setShareUrl('');
       setShareUrlSize('');
     }
-  }, [markdown, annotations, globalAttachments, shareBaseUrl]);
+  }, [markdown, annotations, globalAttachments, shareBaseUrl, rawHtml]);
 
   // Auto-refresh share URL when dependencies change
   useEffect(() => {
@@ -258,7 +272,7 @@ export function useSharing(
   useEffect(() => {
     setShortShareUrl('');
     setShortUrlError('');
-  }, [markdown, annotations]);
+  }, [markdown, annotations, rawHtml]);
 
   /**
    * Generate a short URL via the paste service.
@@ -267,7 +281,7 @@ export function useSharing(
    * hash-based URL remains usable as a fallback.
    */
   const generateShortUrl = useCallback(async () => {
-    if (!markdown) return;
+    if (!markdown && !rawHtml) return;
 
     setIsGeneratingShortUrl(true);
     setShortUrlError('');
@@ -277,7 +291,8 @@ export function useSharing(
         markdown,
         annotations,
         globalAttachments,
-        { pasteApiUrl, shareBaseUrl }
+        { pasteApiUrl, shareBaseUrl },
+        rawHtml,
       );
 
       if (result) {
@@ -292,7 +307,7 @@ export function useSharing(
     } finally {
       setIsGeneratingShortUrl(false);
     }
-  }, [markdown, annotations, globalAttachments, shareBaseUrl, pasteApiUrl]);
+  }, [markdown, annotations, globalAttachments, shareBaseUrl, pasteApiUrl, rawHtml]);
 
   // Import annotations from a teammate's share URL (supports both hash-based and short /p/<id> URLs)
   const importFromShareUrl = useCallback(async (url: string): Promise<ImportResult> => {
@@ -328,7 +343,7 @@ export function useSharing(
       }
 
       // Extract plan title from embedded plan text
-      const lines = (payload.p || '').trim().split('\n');
+      const lines = (payload.p || payload.h || '').trim().split('\n');
       const titleLine = lines.find(l => l.startsWith('#'));
       const planTitle = titleLine ? titleLine.replace(/^#+\s*/, '').trim() : 'Unknown Plan';
 

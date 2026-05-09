@@ -639,7 +639,10 @@ const App: React.FC = () => {
       setIsLoading(false);
     },
     shareBaseUrl,
-    pasteApiUrl
+    pasteApiUrl,
+    rawHtml,
+    setRawHtml,
+    setRenderAs,
   );
 
   // Auto-save annotation drafts
@@ -1347,10 +1350,10 @@ const App: React.FC = () => {
   const callbackConfig = React.useMemo(() => getCallbackConfig(), []);
 
   const callCallback = React.useCallback(async (action: CallbackAction) => {
-    if (!callbackConfig || isSubmitting || !shareUrl) return;
+    if (!callbackConfig || isSubmitting || (!shareUrl && !shortShareUrl)) return;
     setIsSubmitting(true);
     try {
-      const toast = await executeCallback(action, callbackConfig, shareUrl);
+      const toast = await executeCallback(action, callbackConfig, shortShareUrl || shareUrl);
       if (toast) {
         setNoteSaveToast(toast);
         setTimeout(() => setNoteSaveToast(null), 4000);
@@ -1449,7 +1452,7 @@ const App: React.FC = () => {
 
   const handleCopyShareLink = async () => {
     try {
-      await navigator.clipboard.writeText(shareUrl);
+      await navigator.clipboard.writeText(shortShareUrl || shareUrl);
       setNoteSaveToast({ type: 'success', message: 'Share link copied' });
     } catch {
       setNoteSaveToast({ type: 'error', message: 'Failed to copy' });
@@ -1556,13 +1559,13 @@ const App: React.FC = () => {
                 <div className="w-px h-5 bg-border/50 mx-1 hidden md:block" />
                 <FeedbackButton
                   onClick={handleCallbackFeedback}
-                  disabled={isSubmitting || !shareUrl}
+                  disabled={isSubmitting || (!shareUrl && !shortShareUrl)}
                   isLoading={isSubmitting}
                   title="Send feedback to bot"
                 />
                 <ApproveButton
                   onClick={handleCallbackApprove}
-                  disabled={isSubmitting || !shareUrl}
+                  disabled={isSubmitting || (!shareUrl && !shortShareUrl)}
                   isLoading={isSubmitting}
                   title="Approve design and notify bot"
                 />
@@ -2035,7 +2038,7 @@ const App: React.FC = () => {
             onQuickCopy={async () => {
               await navigator.clipboard.writeText(wrapFeedbackForAgent(annotationsOutput));
             }}
-            onShare={canShareCurrentSession && shareUrl ? () => { setIsPanelOpen(false); setInitialExportTab('share'); setShowExport(true); } : undefined}
+            onShare={canShareCurrentSession && (shareUrl || shortShareUrl) ? () => { setIsPanelOpen(false); setInitialExportTab('share'); setShowExport(true); } : undefined}
             otherFileAnnotations={otherFileAnnotations}
             onOtherFileAnnotationsClick={handleFlashAnnotatedFiles}
           />
