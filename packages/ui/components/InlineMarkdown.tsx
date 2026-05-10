@@ -1,5 +1,5 @@
-import React from "react";
-import { isCodeFilePath, isCodeFilePathStrict, CODE_PATH_BARE_REGEX } from "@plannotator/shared/code-file";
+import React, { useState, useRef, useCallback } from "react";
+import { isCodeFilePath, isCodeFilePathStrict, CODE_PATH_BARE_REGEX, parseCodePath } from "@plannotator/shared/code-file";
 import { transformPlainText } from "../utils/inlineTransforms";
 import { getImageSrc } from "./ImageThumbnail";
 import { useCodePathValidation, type CodePathValidationContextValue } from "./CodePathValidationContext";
@@ -33,6 +33,42 @@ function gateCodePath(
   }
 }
 
+const CodeSnippetPreview: React.FC<{
+  anchorEl: HTMLElement | null;
+  contents: string;
+  line: number;
+  lineEnd?: number;
+}> = ({ anchorEl, contents, line, lineEnd }) => {
+  if (!anchorEl) return null;
+  const lines = contents.split('\n');
+  const start = Math.max(0, line - 1);
+  const end = Math.min(lines.length, (lineEnd ?? line));
+  const snippet = lines.slice(start, end);
+
+  const rect = anchorEl.getBoundingClientRect();
+  const top = rect.bottom + 4;
+  const left = Math.max(8, rect.left);
+
+  return (
+    <div
+      className="fixed z-[9999] rounded-lg border border-border bg-card shadow-xl overflow-hidden"
+      style={{ top, left, maxWidth: 'min(600px, 90vw)', maxHeight: '300px' }}
+    >
+      <div className="px-3 py-1.5 border-b border-border/50 text-[10px] text-muted-foreground font-mono">
+        {lineEnd && lineEnd !== line ? `lines ${line}–${lineEnd}` : `line ${line}`}
+      </div>
+      <pre className="overflow-auto p-3 text-[12px] leading-5 font-mono text-foreground/90">
+        {snippet.map((l, i) => (
+          <div key={start + i} className="flex">
+            <span className="select-none text-muted-foreground/40 w-8 text-right pr-3 flex-shrink-0">{start + i + 1}</span>
+            <span>{l || ' '}</span>
+          </div>
+        ))}
+      </pre>
+    </div>
+  );
+};
+
 const CodeFileLink: React.FC<{
   candidate: string;
   display: string;
@@ -40,8 +76,29 @@ const CodeFileLink: React.FC<{
 }> = ({ candidate, display, onOpenCodeFile }) => {
   const validation = useCodePathValidation();
   const gate = gateCodePath(candidate, validation);
-  const [pickerOpen, setPickerOpen] = React.useState(false);
-  const anchorRef = React.useRef<HTMLElement | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [hoverPreview, setHoverPreview] = useState<{ contents: string } | null>(null);
+  const anchorRef = useRef<HTMLElement | null>(null);
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const parsed = parseCodePath(candidate);
+  const hasLineRef = parsed.line != null;
+
+  const handleMouseEnter = useCallback(() => {
+    if (!hasLineRef || gate.render === 'plain') return;
+    hoverTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/doc?path=${encodeURIComponent(candidate)}`);
+        const data = await res.json();
+        if (data.contents) setHoverPreview({ contents: data.contents });
+      } catch {}
+    }, 300);
+  }, [candidate, hasLineRef, gate.render]);
+
+  const handleMouseLeave = useCallback(() => {
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    hoverTimerRef.current = null;
+    setHoverPreview(null);
+  }, []);
 
   if (gate.render === 'plain') {
     return (
@@ -53,6 +110,7 @@ const CodeFileLink: React.FC<{
 
   const isAmbiguous = gate.render === 'ambiguous-link';
   const handleClick = () => {
+    handleMouseLeave();
     if (isAmbiguous) {
       setPickerOpen(true);
       return;
@@ -69,6 +127,8 @@ const CodeFileLink: React.FC<{
         data-ambiguous={isAmbiguous ? "true" : undefined}
         onClick={handleClick}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleClick(); } }}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
         className="code-file-link px-1.5 py-0.5 rounded bg-muted text-sm font-mono cursor-pointer hover:text-primary inline-flex items-center gap-1 transition-colors"
         title={isAmbiguous ? `${display} — multiple matches` : `View: ${display}`}
       >
@@ -78,6 +138,14 @@ const CodeFileLink: React.FC<{
           <sup className="text-[0.6rem] opacity-70 -ml-0.5">{(gate as { matches: string[] }).matches.length}</sup>
         )}
       </code>
+      {hoverPreview && hasLineRef && (
+        <CodeSnippetPreview
+          anchorEl={anchorRef.current}
+          contents={hoverPreview.contents}
+          line={parsed.line!}
+          lineEnd={parsed.lineEnd}
+        />
+      )}
       {pickerOpen && isAmbiguous && (
         <CodeFilePicker
           anchorEl={anchorRef.current}

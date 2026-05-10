@@ -46,8 +46,10 @@ Code-file links (highest leverage)
 Reference real source files inline. Plannotator validates the path and renders a clickable badge that opens the file in the reviewer's editor — prefer this over pasting code when you just need to point at something.
   \`packages/server/index.ts\`            backticked path
   \`packages/server/index.ts:42\`         path with line number
+  \`packages/server/index.ts:10-20\`      line range — hover shows a code snippet preview
   [the handler](packages/server/index.ts:42)  markdown link form
 Ambiguous paths (e.g. \`index.ts\`) still render and open a picker.
+Line references (\`:42\` or \`:10-20\`) open the file scrolled to that region.
 
 Callouts and alerts
 GitHub-style alerts highlight critical context:

@@ -24,6 +24,8 @@ interface CodeFilePopoutProps {
   prerenderedHTML?: string;
   error?: string;
   requestedPath?: string;
+  line?: number;
+  lineEnd?: number;
   annotations?: CodeAnnotation[];
   selectedAnnotationId?: string | null;
   onAddAnnotation?: (annotation: CodeFileAnnotationInput) => void;
@@ -290,6 +292,8 @@ export const CodeFilePopout: React.FC<CodeFilePopoutProps> = ({
   prerenderedHTML,
   error,
   requestedPath,
+  line: initialLine,
+  lineEnd: initialLineEnd,
   annotations = [],
   selectedAnnotationId,
   onAddAnnotation,
@@ -363,6 +367,15 @@ export const CodeFilePopout: React.FC<CodeFilePopoutProps> = ({
     }, 100);
     return () => clearTimeout(timer);
   }, [selectedAnnotationId, filepath]);
+
+  useEffect(() => {
+    if (!initialLine || !fileAreaRef.current) return;
+    const timer = setTimeout(() => {
+      const lineEl = fileAreaRef.current?.querySelector(`[data-line="${initialLine}"]`);
+      lineEl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [initialLine, filepath]);
 
   const openCommentForRange = useCallback((
     range: { start: number; end: number },
