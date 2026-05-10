@@ -218,7 +218,8 @@ export async function handleDocExists(req: Request): Promise<Response> {
 
 	await Promise.all(
 		(paths as string[]).map(async (p) => {
-			const r = await resolveCodeFile(p, projectRoot, baseDir);
+			const cleanP = parseCodePath(p).filePath;
+			const r = await resolveCodeFile(cleanP, projectRoot, baseDir);
 			if (r.kind === "found") {
 				results[p] = { status: "found", resolved: r.path };
 			} else if (r.kind === "ambiguous") {
