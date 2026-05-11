@@ -55,6 +55,7 @@ export const BRIDGE_SCRIPT = `(function() {
   // --- Resize ---
   var lastHeight = 0;
   function postResize() {
+    if (!document.body) return;
     var h = document.body.scrollHeight;
     if (h !== lastHeight) {
       lastHeight = h;
@@ -62,9 +63,6 @@ export const BRIDGE_SCRIPT = `(function() {
     }
   }
   window.addEventListener('load', postResize);
-  if (typeof ResizeObserver !== 'undefined') {
-    new ResizeObserver(postResize).observe(document.body);
-  }
 
   // --- Selection ---
   var pendingSelection = null;
@@ -301,6 +299,9 @@ export const BRIDGE_SCRIPT = `(function() {
   }
 
   function onReady() {
+    if (typeof ResizeObserver !== 'undefined' && document.body) {
+      new ResizeObserver(postResize).observe(document.body);
+    }
     parent.postMessage({ type: PREFIX + 'ready' }, '*');
   }
   if (document.readyState === 'loading') {
