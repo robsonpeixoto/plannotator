@@ -462,7 +462,7 @@ export const GraphvizBlock: React.FC<{ block: Block }> = ({ block }) => {
   const diagramBody = (
     <div
       ref={containerRef}
-      className={`rounded-xl bg-muted/30 border border-border/30 overflow-hidden select-none cursor-grab ${isExpanded ? 'h-full min-h-0' : ''}`}
+      className={`rounded-xl bg-muted/30 border border-border/30 overflow-hidden select-none cursor-grab graphviz-themed ${isExpanded ? 'h-full min-h-0' : ''}`}
       style={isExpanded ? undefined : { height: naturalHeight }}
       dangerouslySetInnerHTML={{ __html: svg }}
       onMouseDown={handleMouseDown}
