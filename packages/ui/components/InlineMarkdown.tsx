@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import hljs from "highlight.js";
 import { isCodeFilePath, isCodeFilePathStrict, CODE_PATH_BARE_REGEX, parseCodePath } from "@plannotator/shared/code-file";
 import { transformPlainText } from "../utils/inlineTransforms";
@@ -82,9 +83,7 @@ const CodeSnippetPreview: React.FC<{
   const bottom = showAbove ? window.innerHeight - rect.top + 4 : undefined;
   const left = Math.max(8, Math.min(rect.left, window.innerWidth - 520));
 
-  // TODO: render via createPortal(... , document.body) to avoid position: fixed
-  // breaking when an ancestor has transform/backdrop-filter (same fix as CodeFilePicker)
-  return (
+  return createPortal(
     <div
       className="fixed z-[9999] rounded-lg border border-border bg-card shadow-xl flex flex-col"
       style={{ top, bottom, left, maxWidth: 'min(600px, 90vw)', maxHeight: '300px' }}
@@ -110,7 +109,8 @@ const CodeSnippetPreview: React.FC<{
           </tbody>
         </table>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 };
 
