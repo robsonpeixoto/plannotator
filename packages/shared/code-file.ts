@@ -20,8 +20,9 @@ export function parseCodePath(input: string): ParsedCodePath {
 	const clean = input.replace(/#.*$/, '');
 	const m = clean.match(LINE_SUFFIX_RE);
 	if (!m) return { filePath: clean };
-	const line = Number.parseInt(m[1], 10);
-	const lineEnd = m[2] ? Number.parseInt(m[2], 10) : undefined;
+	let line = Number.parseInt(m[1], 10);
+	let lineEnd = m[2] ? Number.parseInt(m[2], 10) : undefined;
+	if (lineEnd != null && lineEnd < line) { const tmp = line; line = lineEnd; lineEnd = tmp; }
 	return { filePath: clean.replace(LINE_SUFFIX_RE, ''), line, lineEnd };
 }
 

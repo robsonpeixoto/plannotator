@@ -121,6 +121,8 @@ const CodeFileLink: React.FC<{
   const gate = gateCodePath(candidate, validation);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [hoverPreview, setHoverPreview] = useState<{ contents: string; filepath: string } | null>(null);
+  const hoverPreviewRef = useRef(hoverPreview);
+  hoverPreviewRef.current = hoverPreview;
   const anchorRef = useRef<HTMLElement | null>(null);
   const showTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -141,7 +143,7 @@ const CodeFileLink: React.FC<{
   const handleMouseEnter = useCallback(() => {
     if (!hasLineRef || gate.render === 'plain') return;
     cancelHide();
-    if (hoverPreview) return;
+    if (hoverPreviewRef.current) return;
     showTimerRef.current = setTimeout(async () => {
       try {
         const params = new URLSearchParams({ path: candidate });
@@ -151,7 +153,7 @@ const CodeFileLink: React.FC<{
         if (data.contents) setHoverPreview({ contents: data.contents, filepath: data.filepath ?? candidate });
       } catch {}
     }, 150);
-  }, [candidate, hasLineRef, gate.render, cancelHide, hoverPreview, baseDir]);
+  }, [candidate, hasLineRef, gate.render, cancelHide, baseDir]);
 
   const handleMouseLeave = useCallback(() => {
     if (showTimerRef.current) { clearTimeout(showTimerRef.current); showTimerRef.current = null; }
@@ -182,6 +184,7 @@ const CodeFileLink: React.FC<{
   }
 
   const isAmbiguous = gate.render === 'ambiguous-link';
+  const lineSuffix = parsed.line != null ? `:${parsed.line}${parsed.lineEnd != null ? `-${parsed.lineEnd}` : ''}` : '';
   const handleClick = () => {
     handleMouseLeave();
     if (isAmbiguous) {
@@ -189,7 +192,6 @@ const CodeFileLink: React.FC<{
       return;
     }
     const resolvedPath = gate.render === 'link' && gate.resolved ? gate.resolved : candidate;
-    const lineSuffix = parsed.line != null ? `:${parsed.line}${parsed.lineEnd != null ? `-${parsed.lineEnd}` : ''}` : '';
     onOpenCodeFile(gate.render === 'link' && gate.resolved ? resolvedPath + lineSuffix : candidate);
   };
 
@@ -228,7 +230,7 @@ const CodeFileLink: React.FC<{
         <CodeFilePicker
           anchorEl={anchorRef.current}
           matches={(gate as { matches: string[] }).matches}
-          onPick={(path) => { setPickerOpen(false); onOpenCodeFile(path); }}
+          onPick={(path) => { setPickerOpen(false); onOpenCodeFile(path + lineSuffix); }}
           onDismiss={() => setPickerOpen(false)}
         />
       )}

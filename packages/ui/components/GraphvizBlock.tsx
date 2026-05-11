@@ -1,114 +1,7 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { instance } from '@viz-js/viz';
-import rough from 'roughjs';
 import type { Block } from '../types';
-import { useConfigValue } from '../config/useConfig';
-
-function parsePoints(pointsStr: string): [number, number][] {
-  const nums = pointsStr.trim().split(/[\s,]+/).map(Number);
-  const result: [number, number][] = [];
-  for (let i = 0; i < nums.length - 1; i += 2) {
-    result.push([nums[i], nums[i + 1]]);
-  }
-  return result;
-}
-
-function sketchifySvg(svgMarkup: string): string {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(svgMarkup, 'image/svg+xml');
-  const svgEl = doc.querySelector('svg');
-  if (!svgEl) return svgMarkup;
-
-  const rc = rough.svg(svgEl);
-
-  const elements = svgEl.querySelectorAll('path, rect, ellipse, circle, line, polygon, polyline');
-  for (const el of elements) {
-    const parent = el.parentElement;
-    if (!parent) continue;
-
-    const fill = el.getAttribute('fill') || 'none';
-    const stroke = el.getAttribute('stroke') || 'none';
-    const isArrowHead = el.tagName === 'polygon' && parent.classList.contains('edge');
-
-    if (fill === 'none' && stroke === 'none') continue;
-
-    const opts: any = {
-      stroke: stroke === 'none' ? 'transparent' : stroke,
-      fill: fill === 'none' || fill === 'transparent' ? undefined : fill,
-      fillStyle: 'solid',
-      roughness: 1.2,
-      bowing: 1.5,
-      seed: Math.floor(Math.random() * 2 ** 31),
-    };
-
-    if (isArrowHead) {
-      opts.roughness = 0.5;
-      opts.bowing = 0.5;
-    }
-
-    let node: SVGGElement | null = null;
-    try {
-      switch (el.tagName) {
-        case 'path': {
-          const d = el.getAttribute('d');
-          if (d) node = rc.path(d, opts);
-          break;
-        }
-        case 'rect': {
-          const x = +(el.getAttribute('x') || 0);
-          const y = +(el.getAttribute('y') || 0);
-          const w = +(el.getAttribute('width') || 0);
-          const h = +(el.getAttribute('height') || 0);
-          if (w > 0 && h > 0) node = rc.rectangle(x, y, w, h, opts);
-          break;
-        }
-        case 'circle': {
-          const cx = +(el.getAttribute('cx') || 0);
-          const cy = +(el.getAttribute('cy') || 0);
-          const r = +(el.getAttribute('r') || 0);
-          if (r > 0) node = rc.circle(cx, cy, r * 2, opts);
-          break;
-        }
-        case 'ellipse': {
-          const cx = +(el.getAttribute('cx') || 0);
-          const cy = +(el.getAttribute('cy') || 0);
-          const rx = +(el.getAttribute('rx') || 0);
-          const ry = +(el.getAttribute('ry') || 0);
-          if (rx > 0 && ry > 0) node = rc.ellipse(cx, cy, rx * 2, ry * 2, opts);
-          break;
-        }
-        case 'line': {
-          const x1 = +(el.getAttribute('x1') || 0);
-          const y1 = +(el.getAttribute('y1') || 0);
-          const x2 = +(el.getAttribute('x2') || 0);
-          const y2 = +(el.getAttribute('y2') || 0);
-          node = rc.line(x1, y1, x2, y2, opts);
-          break;
-        }
-        case 'polygon': {
-          const pts = el.getAttribute('points');
-          if (pts) node = rc.polygon(parsePoints(pts), opts);
-          break;
-        }
-        case 'polyline': {
-          const pts = el.getAttribute('points');
-          if (pts) node = rc.linearPath(parsePoints(pts), opts);
-          break;
-        }
-      }
-    } catch {
-      continue;
-    }
-
-    if (node) {
-      parent.insertBefore(node, el);
-      parent.removeChild(el);
-    }
-  }
-
-  return svgEl.outerHTML;
-}
 
 interface ViewBox {
   x: number;
@@ -211,7 +104,6 @@ function fitBoundsToContainer(bounds: ViewBox, containerRect: DOMRect): ViewBox 
 }
 
 export const GraphvizBlock: React.FC<{ block: Block }> = ({ block }) => {
-  const sketchMode = useConfigValue('sketchDiagrams');
   const containerRef = useRef<HTMLDivElement>(null);
   const [svg, setSvg] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -281,36 +173,10 @@ export const GraphvizBlock: React.FC<{ block: Block }> = ({ block }) => {
           .replace(/fill="lightgrey"/g, 'fill="var(--muted)"')
           .replace(/fill="lightgray"/g, 'fill="var(--muted)"');
 
-        const SYSTEM_FONTS = new Set(['times', 'times new roman', 'arial', 'helvetica', 'courier', 'courier new', 'sans-serif', 'serif', 'monospace', 'inter', 'system-ui']);
-        const fontMatches = cleaned.matchAll(/font-family="([^"]+)"/g);
-        const customFonts = new Set<string>();
-        for (const m of fontMatches) {
-          const family = m[1].split(',')[0].trim();
-          if (family && !SYSTEM_FONTS.has(family.toLowerCase())) customFonts.add(family);
-        }
-        for (const font of customFonts) {
-          const id = `graphviz-font-${font.replace(/\s+/g, '-').toLowerCase()}`;
-          if (!document.getElementById(id)) {
-            const link = document.createElement('link');
-            link.id = id;
-            link.rel = 'stylesheet';
-            link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(font)}&display=swap`;
-            document.head.appendChild(link);
-          }
-        }
         if (!cancelled) {
           naturalBoundsRef.current = parseViewBoxFromMarkup(cleaned);
-          if (sketchMode) {
-            try {
-              const sketched = sketchifySvg(cleaned);
-              if (!cancelled) { setSvg(sketched); setError(null); }
-            } catch {
-              if (!cancelled) { setSvg(cleaned); setError(null); }
-            }
-          } else {
-            setSvg(cleaned);
-            setError(null);
-          }
+          setSvg(cleaned);
+          setError(null);
         }
       } catch (err) {
         if (!cancelled) {
@@ -325,7 +191,7 @@ export const GraphvizBlock: React.FC<{ block: Block }> = ({ block }) => {
     return () => {
       cancelled = true;
     };
-  }, [block.content, sketchMode]);
+  }, [block.content]);
 
   useEffect(() => {
     zoomLevelRef.current = 1;
