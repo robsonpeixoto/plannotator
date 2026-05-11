@@ -529,37 +529,54 @@ Small inline labels for categorizing items:
 
 ## Diff Rendering (for PR reviews)
 
-Three-column grid: line number | +/- marker | code. Use for inline diffs in PR explainers.
+Use Pierre diffs via CDN for syntax-highlighted, theme-aware diff rendering. Pierre renders into shadow DOM (no style conflicts) and supports Plannotator theme tokens via CSS variable injection.
 
-```css
-.diff {
-  background: var(--code-bg);
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  line-height: 1.7;
-  overflow-x: auto;
-  border-radius: var(--radius);
-  border: 1.5px solid var(--border);
-}
+```html
+<script type="module">
+  import { getSingularPatch, registerDiffsComponent } from 'https://cdn.jsdelivr.net/npm/@pierre/diffs@1.1.21/+esm';
 
-.diff-row {
-  display: grid;
-  grid-template-columns: 48px 18px 1fr;
-  align-items: baseline;
-  padding: 0 14px 0 0;
-  white-space: pre;
-}
+  registerDiffsComponent();
 
-.diff-row .ln { text-align: right; padding-right: 14px; color: var(--muted-foreground); user-select: none; opacity: 0.5; }
-.diff-row .mark { text-align: center; color: var(--muted-foreground); }
-.diff-row .code { color: var(--foreground); }
-.diff-row.ctx .code { opacity: 0.6; }
-.diff-row.add { background: color-mix(in oklab, var(--success) 12%, transparent); }
-.diff-row.add .mark { color: var(--success); }
-.diff-row.del { background: color-mix(in oklab, var(--destructive) 12%, transparent); }
-.diff-row.del .mark { color: var(--destructive); }
-.diff-row.hunk { background: color-mix(in oklab, var(--muted) 30%, transparent); color: var(--muted-foreground); }
+  const patch = `--- a/src/handler.ts
++++ b/src/handler.ts
+@@ -1,4 +1,6 @@
+ import { Router } from 'express';
++import { NotificationService } from './notifications';
+-import { legacyPoll } from './polling';
+ 
+ export function createHandler() {`;
+
+  const fileDiff = getSingularPatch(patch);
+
+  const container = document.querySelector('diffs-container');
+  container.fileDiff = fileDiff;
+  container.options = {
+    themeType: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
+    diffStyle: 'unified',
+    diffIndicators: 'bars',
+    lineDiffType: 'word-alt',
+    unsafeCSS: `
+      :host {
+        --diffs-bg: var(--background);
+        --diffs-fg: var(--foreground);
+        --diffs-dark-bg: var(--background);
+        --diffs-light-bg: var(--background);
+        --diffs-dark: var(--foreground);
+        --diffs-light: var(--foreground);
+        border-radius: var(--radius);
+        border: 1.5px solid var(--border);
+        overflow: hidden;
+      }
+    `,
+  };
+</script>
+
+<diffs-container></diffs-container>
 ```
+
+Pierre handles syntax highlighting (via Shiki), line numbers, add/del coloring, word-level diffs, and split/unified views automatically. The `unsafeCSS` option injects Plannotator theme tokens into the shadow DOM.
+
+For multiple diffs on one page, create one `<diffs-container>` per file and set `fileDiff` + `options` on each.
 
 ## Review Comment Bubbles (for PR reviews)
 
