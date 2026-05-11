@@ -89,14 +89,14 @@ const CodeSnippetPreview: React.FC<{
         <span>{filepath.split('/').pop()}</span>
         <span className="opacity-60">{lineEnd && lineEnd !== line ? `lines ${line}–${lineEnd}` : `line ${line}`}</span>
       </div>
-      <div className="overflow-auto p-0 text-[12px] leading-5">
+      <div className="hljs overflow-auto text-[12px] leading-5" style={{ padding: 0, background: 'var(--color-muted, #1e293b)' }}>
         <table className="border-collapse w-full">
           <tbody>
             {snippet.split('\n').map((_, i) => (
-              <tr key={start + i} className="hover:bg-muted/30">
-                <td className="select-none text-muted-foreground/40 text-right pr-3 pl-3 py-0 align-top font-mono w-8 whitespace-nowrap">{start + i + 1}</td>
+              <tr key={start + i} className="hover:bg-white/5">
+                <td className="select-none text-muted-foreground/40 text-right pr-3 pl-3 py-0 align-top font-mono w-8 whitespace-nowrap" style={{ userSelect: 'none' }}>{start + i + 1}</td>
                 <td
-                  className="hljs font-mono pr-3 py-0 whitespace-pre"
+                  className="font-mono pr-3 py-0 whitespace-pre"
                   dangerouslySetInnerHTML={{ __html: highlighted.split('\n')[i] ?? '' }}
                 />
               </tr>
@@ -117,7 +117,6 @@ const CodeFileLink: React.FC<{
   const gate = gateCodePath(candidate, validation);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [hoverPreview, setHoverPreview] = useState<{ contents: string; filepath: string } | null>(null);
-  const [previewHovered, setPreviewHovered] = useState(false);
   const anchorRef = useRef<HTMLElement | null>(null);
   const showTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -132,7 +131,6 @@ const CodeFileLink: React.FC<{
     cancelHide();
     hideTimerRef.current = setTimeout(() => {
       setHoverPreview(null);
-      setPreviewHovered(false);
     }, 200);
   }, [cancelHide]);
 
@@ -156,11 +154,9 @@ const CodeFileLink: React.FC<{
 
   const handlePreviewEnter = useCallback(() => {
     cancelHide();
-    setPreviewHovered(true);
   }, [cancelHide]);
 
   const handlePreviewLeave = useCallback(() => {
-    setPreviewHovered(false);
     scheduleHide();
   }, [scheduleHide]);
 

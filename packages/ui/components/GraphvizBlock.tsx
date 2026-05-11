@@ -2,7 +2,7 @@ import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { instance } from '@viz-js/viz';
 import type { Block } from '../types';
-import { useConfig } from '../config/useConfig';
+import { useConfigValue } from '../config/useConfig';
 
 let roughPromise: Promise<any> | null = null;
 function loadRoughJs(): Promise<any> {
@@ -224,7 +224,7 @@ function fitBoundsToContainer(bounds: ViewBox, containerRect: DOMRect): ViewBox 
 }
 
 export const GraphvizBlock: React.FC<{ block: Block }> = ({ block }) => {
-  const sketchMode = useConfig('sketchDiagrams');
+  const sketchMode = useConfigValue('sketchDiagrams');
   const containerRef = useRef<HTMLDivElement>(null);
   const [svg, setSvg] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -312,18 +312,17 @@ export const GraphvizBlock: React.FC<{ block: Block }> = ({ block }) => {
             document.head.appendChild(link);
           }
         }
-        const withFonts = cleaned;
         if (!cancelled) {
-          naturalBoundsRef.current = parseViewBoxFromMarkup(withFonts);
+          naturalBoundsRef.current = parseViewBoxFromMarkup(cleaned);
           if (sketchMode) {
             try {
-              const sketched = await sketchifySvg(withFonts);
+              const sketched = await sketchifySvg(cleaned);
               if (!cancelled) { setSvg(sketched); setError(null); }
             } catch {
-              if (!cancelled) { setSvg(withFonts); setError(null); }
+              if (!cancelled) { setSvg(cleaned); setError(null); }
             }
           } else {
-            setSvg(withFonts);
+            setSvg(cleaned);
             setError(null);
           }
         }
