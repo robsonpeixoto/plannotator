@@ -99,7 +99,6 @@ import { useCheckboxOverrides, derivePendingCheckboxBlockIds } from './hooks/use
 import { useAnnotationController } from '@plannotator/ui/hooks/useAnnotationController';
 import { StartRoomModal } from '@plannotator/ui/components/collab/StartRoomModal';
 import { useStartLiveRoom } from './hooks/collab/useStartLiveRoom';
-import { AppHeader } from './components/AppHeader';
 
 type NoteAutoSaveResults = {
   obsidian?: boolean;
@@ -1814,7 +1813,7 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
 
   // Header handlers ref — stores latest handler references so the stable
   // callbacks below always call the current version without needing useCallback
-  // dep arrays for every handler. This lets React.memo on AppHeader work.
+  // dep arrays for every handler. Used by AppHeader (not yet adopted in room mode).
   const headerHandlersRef = useRef({
     handleApprove,
     handleDeny,

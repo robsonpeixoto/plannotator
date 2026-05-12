@@ -28,6 +28,16 @@ plannotator/
 │   │   ├── index.html
 │   │   ├── index.tsx
 │   │   └── vite.config.ts
+│   ├── room-service/             # Live collaboration rooms (Cloudflare Worker + Durable Object)
+│   │   ├── core/                 # Handler, DO class, validation, CORS, log, types, csp
+│   │   ├── targets/cloudflare.ts # Worker entry + DO re-export
+│   │   ├── entry.tsx             # Browser shell entry — path switch: / → LandingPage, /c/:roomId → AppRoot
+│   │   ├── index.html            # Vite template; produces hashed chunks under /assets/
+│   │   ├── vite.config.ts        # Browser shell build (bun run build:shell)
+│   │   ├── tsconfig.browser.json # DOM-lib tsconfig for the shell
+│   │   ├── static/               # Root-level static assets copied into public/ by build:shell (favicon.svg)
+│   │   ├── scripts/smoke.ts      # Integration test against wrangler dev
+│   │   └── wrangler.toml         # SQLite-backed DO binding + ASSETS binding (run_worker_first, html_handling=none)
 │   ├── vscode-extension/         # VS Code extension — opens plans in editor tabs
 │   │   ├── bin/                   # Router scripts (open-in-vscode, xdg-open)
 │   │   ├── src/                   # extension.ts, cookie-proxy.ts, ipc-server.ts, panel-manager.ts, editor-annotations.ts, vscode-theme.ts
@@ -58,7 +68,8 @@ plannotator/
 │   │   ├── components/           # Viewer, Toolbar, Settings, etc.
 │   │   │   ├── icons/            # Shared SVG icon components (themeIcons, etc.)
 │   │   │   ├── plan-diff/        # PlanDiffBadge, PlanDiffViewer, clean/raw diff views
-│   │   │   └── sidebar/          # SidebarContainer, SidebarTabs, VersionBrowser, ArchiveBrowser
+│   │   │   ├── sidebar/          # SidebarContainer, SidebarTabs, VersionBrowser, ArchiveBrowser
+│   │   │   └── collab/           # RoomStatusBadge, ParticipantAvatars, RoomHeaderControls, RoomMenu, RoomUnavailableScreen, JoinRoomGate, StartRoomModal, RemoteCursorLayer, ImageStripNotice, LandingPage, LandingPreview
 │   │   ├── shortcuts/            # Keyboard shortcut registry (see Keyboard Shortcuts section below)
 │   │   │   ├── core.ts           # Engine: parser, formatter, dispatcher, validator
 │   │   │   ├── runtime.ts        # Engine: useShortcutScope, useDoubleTapShortcuts hooks
@@ -66,16 +77,28 @@ plannotator/
 │   │   │   ├── plan-review/      # Scopes for plan-editor surfaces (annotationToolbar, annotationPanel, commentPopover, imageAnnotator, inputMethod, viewer)
 │   │   │   └── code-review/      # Scopes for review-editor surfaces (ai, allFilesDiff, annotationToolbar, fileTree, prComments, suggestionModal, tourDialog)
 │   │   ├── shortcuts.test.ts     # Registry unit tests (parser, dispatcher, validator)
-│   │   ├── utils/                # parser.ts, sharing.ts, storage.ts, planSave.ts, agentSwitch.ts, planDiffEngine.ts, planAgentInstructions.ts
+│   │   ├── utils/                # parser.ts, sharing.ts, storage.ts, planSave.ts, agentSwitch.ts, planDiffEngine.ts, planAgentInstructions.ts, adminSecretStorage.ts, blockTargeting.ts
 │   │   ├── hooks/                # useAnnotationHighlighter.ts, useSharing.ts, usePlanDiff.ts, useSidebar.ts, useLinkedDoc.ts, useAnnotationDraft.ts, useCodeAnnotationDraft.ts, useArchive.ts
+│   │   │   └── collab/           # useCollabRoom.ts, useCollabRoomSession.ts, useLandingCreateRoom.ts, usePresenceThrottle.ts, useRoomMode.ts, useRoomAdminActions.ts, useStartLiveRoom.ts
 │   │   └── types.ts
 │   ├── ai/                       # Provider-agnostic AI backbone (providers, sessions, endpoints)
 │   ├── shared/                   # Shared types, utilities, and cross-runtime logic
 │   │   ├── storage.ts            # Plan saving, version history, archive listing (node:fs only)
 │   │   ├── draft.ts              # Annotation draft persistence (node:fs only)
-│   │   └── project.ts            # Pure string helpers (sanitizeTag, extractRepoName, extractDirName)
-│   ├── editor/                   # Plan review app
-│   │   ├── App.tsx               # Main plan review app
+│   │   ├── project.ts            # Pure string helpers (sanitizeTag, extractRepoName, extractDirName)
+│   │   └── collab/               # Live Rooms protocol, crypto, validators, client runtime, React hook
+│   │       ├── types.ts          # Protocol types + runtime validators
+│   │       ├── crypto.ts         # HKDF key derivation, HMAC proofs, AES-GCM payload encrypt/decrypt
+│   │       ├── ids.ts            # roomId/secret/opId/clientId generators
+│   │       ├── url.ts            # parseRoomUrl / buildRoomJoinUrl / buildAdminRoomUrl (client-only)
+│   │       ├── constants.ts      # ROOM_SECRET_LENGTH_BYTES, ADMIN_SECRET_LENGTH_BYTES, WS_CLOSE_*
+│   │       ├── strip-images.ts   # toRoomAnnotation, stripRoomAnnotationImages
+│   │       ├── redact-url.ts     # redactRoomSecrets (scrub #key=/#admin= from telemetry/logs)
+│   │       └── client-runtime/   # CollabRoomClient class, createRoom, joinRoom, apply-event reducer
+│   ├── editor/                   # Plan review app (App.tsx) + room-mode shell
+│   │   ├── App.tsx               # Plan review editor (local + room-mode prop)
+│   │   ├── AppRoot.tsx           # Mode fork (local | room | invalid-room); package default export
+│   │   └── RoomApp.tsx           # Room-mode shell — identity gate, session, overlays, delete/expired fallbacks
 │   │   └── shortcuts.ts          # planReviewSurface + annotateSurface — composes plan-review scopes into per-surface registries
 │   └── review-editor/            # Code review UI
 │       ├── App.tsx               # Main review app
@@ -307,6 +330,21 @@ All servers use random ports locally or fixed port (`19432`) in remote mode.
 | `/api/paste/:id`      | GET    | Retrieve stored compressed data            |
 
 Runs as a separate service on port `19433` (self-hosted) or as a Cloudflare Worker (hosted).
+
+### Room Service (`apps/room-service/`)
+
+Live-collaboration rooms for encrypted multi-user annotation. Zero-knowledge: the Worker + Durable Object stores and relays ciphertext only. Clients hold the room secret in the URL fragment and derive `authKey`/`eventKey`/`presenceKey`/`adminKey` locally.
+
+| Endpoint              | Method | Purpose                                    |
+| --------------------- | ------ | ------------------------------------------ |
+| `/`                   | GET    | Landing page for room creation from uploaded document. Serves the same `index.html` shell; `entry.tsx` path switch renders `LandingPage` (lazy-loaded). |
+| `/health`             | GET    | Worker liveness probe                      |
+| `/c/:roomId`          | GET    | Room SPA shell — serves the built editor bundle. Response carries CSP, `Cache-Control: no-store`, `Referrer-Policy: no-referrer`. |
+| `/api/rooms`          | POST   | Create room. Body: `{ roomId, roomVerifier, adminVerifier, initialSnapshotCiphertext, expiresInDays? }`. Returns `201` on success; `409` on duplicate. |
+| `/api/fetch-markdown`  | POST   | URL-to-markdown proxy. Body: `{ url }`. Returns `{ markdown, source }`. |
+| `/ws/:roomId`         | GET    | WebSocket upgrade into the room Durable Object. |
+
+Protocol contract lives in `packages/shared/collab/`; the Worker/DO never imports client-only URL helpers.
 
 ## Plan Version History
 
