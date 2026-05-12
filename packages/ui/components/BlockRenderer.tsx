@@ -83,6 +83,9 @@ export const BlockRenderer: React.FC<{
         ? checkboxOverrides.get(block.id)!
         : block.checked;
       const isInteractive = isCheckbox && !!onToggleCheckbox;
+      const textClass = `text-sm leading-relaxed ${isCheckbox && isChecked ? 'text-muted-foreground line-through' : 'text-foreground/90'}`;
+      const paragraphs = block.content.split(/\n\n+/);
+      const inlineProps = { imageBaseDir, onImageClick, onOpenLinkedDoc, onOpenCodeFile, localDocLinksEnabled, githubRepo, onNavigateAnchor };
       return (
         <div
           className="flex items-start gap-3 my-1.5"
@@ -97,9 +100,19 @@ export const BlockRenderer: React.FC<{
             interactive={isInteractive}
             onToggle={isInteractive ? () => onToggleCheckbox!(block.id, !isChecked) : undefined}
           />
-          <span className={`text-sm leading-relaxed ${isCheckbox && isChecked ? 'text-muted-foreground line-through' : 'text-foreground/90'}`}>
-            <InlineMarkdown imageBaseDir={imageBaseDir} onImageClick={onImageClick} text={block.content} onOpenLinkedDoc={onOpenLinkedDoc} onOpenCodeFile={onOpenCodeFile} localDocLinksEnabled={localDocLinksEnabled} githubRepo={githubRepo} onNavigateAnchor={onNavigateAnchor} />
-          </span>
+          {paragraphs.length === 1 ? (
+            <span className={textClass}>
+              <InlineMarkdown {...inlineProps} text={block.content} />
+            </span>
+          ) : (
+            <div className={textClass}>
+              {paragraphs.map((para, i) => (
+                <p key={i} className={i > 0 ? 'mt-3' : ''}>
+                  <InlineMarkdown {...inlineProps} text={para} />
+                </p>
+              ))}
+            </div>
+          )}
         </div>
       );
     }

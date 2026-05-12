@@ -9,9 +9,15 @@
  * Add new settings here. Cookie-only settings omit serverKey.
  */
 
+import type { DiffLineBgIntensity } from '@plannotator/shared/config';
 import { storage } from '../utils/storage';
 import { generateIdentity } from '../utils/generateIdentity';
 import { hashNameToSwatch, isValidPresenceColor, normalizePresenceColor } from '../utils/presenceColor';
+
+const DIFF_LINE_BG_INTENSITY_VALUES = ['subtle', 'normal', 'strong'] as const;
+function isDiffLineBgIntensity(v: unknown): v is DiffLineBgIntensity {
+  return typeof v === 'string' && (DIFF_LINE_BG_INTENSITY_VALUES as readonly string[]).includes(v);
+}
 
 export interface SettingDef<T> {
   defaultValue: T | (() => T);
@@ -218,6 +224,36 @@ export const SETTINGS = {
       return typeof v === 'string' ? v : undefined;
     },
     toServer: (v: string) => ({ diffOptions: { fontSize: v } }),
+  },
+  diffTabSize: {
+    defaultValue: 2 as number,
+    fromCookie: () => {
+      const v = storage.getItem('plannotator-diff-tab-size');
+      const n = v ? parseInt(v, 10) : NaN;
+      return Number.isFinite(n) && n >= 1 && n <= 8 ? n : undefined;
+    },
+    toCookie: (v: number) => storage.setItem('plannotator-diff-tab-size', String(v)),
+    serverKey: 'diffOptions',
+    fromServer: (sc: Record<string, unknown>) => {
+      const v = (sc.diffOptions as Record<string, unknown> | undefined)?.tabSize;
+      return typeof v === 'number' && v >= 1 && v <= 8 ? v : undefined;
+    },
+    toServer: (v: number) => ({ diffOptions: { tabSize: v } }),
+  },
+  diffLineBgIntensity: {
+    defaultValue: 'subtle' as DiffLineBgIntensity,
+    fromCookie: () => {
+      const v = storage.getItem('plannotator-diff-line-bg-intensity');
+      return isDiffLineBgIntensity(v) ? v : undefined;
+    },
+    toCookie: (v: DiffLineBgIntensity) =>
+      storage.setItem('plannotator-diff-line-bg-intensity', v),
+    serverKey: 'diffOptions',
+    fromServer: (sc: Record<string, unknown>) => {
+      const v = (sc.diffOptions as Record<string, unknown> | undefined)?.lineBgIntensity;
+      return isDiffLineBgIntensity(v) ? v : undefined;
+    },
+    toServer: (v: DiffLineBgIntensity) => ({ diffOptions: { lineBgIntensity: v } }),
   },
   conventionalComments: {
     defaultValue: false as boolean,

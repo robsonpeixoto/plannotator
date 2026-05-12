@@ -1,14 +1,14 @@
 /**
- * Plannotator CLI for Claude Code & Copilot CLI
+ * Plannotator CLI for Claude Code, Codex, Gemini CLI, and Copilot CLI
  *
  * Supports eight modes:
  *
  * 1. Plan Review (default, no args):
- *    - Spawned by ExitPlanMode hook (Claude Code)
+ *    - Spawned by Claude/Gemini/Codex hook entrypoints
  *    - Reads hook event from stdin, extracts plan content
  *    - Serves UI, returns approve/deny decision to stdout
  *
- * 2. Code Review (`plannotator review`):
+ * 2. Code Review (`plannotator review`, `plannotator review --git`):
  *    - Triggered by /review slash command
  *    - Runs git diff, opens review UI
  *    - Outputs feedback to stdout (captured by slash command)
@@ -63,8 +63,9 @@ import {
   startAnnotateServer,
   handleAnnotateServerReady,
 } from "@plannotator/server/annotate";
-import { type DiffType, getVcsContext, runVcsDiff, gitRuntime } from "@plannotator/server/vcs";
+import { type DiffType, prepareLocalReviewDiff, gitRuntime } from "@plannotator/server/vcs";
 import { loadConfig, resolveDefaultDiffType, resolveUseJina } from "@plannotator/shared/config";
+import { parseReviewArgs } from "@plannotator/shared/review-args";
 import { stripAtPrefix, resolveAtReference } from "@plannotator/shared/at-reference";
 import { htmlToMarkdown } from "@plannotator/shared/html-to-markdown";
 import { urlToMarkdown, isConvertedSource } from "@plannotator/shared/url-to-markdown";
@@ -88,6 +89,7 @@ import { openBrowser } from "@plannotator/server/browser";
 import { detectProjectName } from "@plannotator/server/project";
 import { hostnameOrFallback } from "@plannotator/shared/project";
 import { readImprovementHook } from "@plannotator/shared/improvement-hooks";
+import { composeImproveContext } from "@plannotator/shared/pfm-reminder";
 import { AGENT_CONFIG, type Origin } from "@plannotator/shared/agents";
 import {
   findSessionLogsByAncestorWalk,
@@ -97,7 +99,7 @@ import {
   resolveSessionLogByCwdScan,
   type RenderedMessage,
 } from "./session-log";
-import { findCodexRolloutByThreadId, getLastCodexMessage } from "./codex-session";
+import { findCodexRolloutByThreadId, getLastCodexMessage, getLatestCodexPlan } from "./codex-session";
 import { findCopilotPlanContent, findCopilotSessionForCwd, getLastCopilotMessage } from "./copilot-session";
 import {
   formatInteractiveNoArgClarification,
@@ -146,6 +148,9 @@ const hookIdx = args.indexOf("--hook");
 const hookFlag = hookIdx !== -1;
 if (hookFlag) args.splice(hookIdx, 1);
 if (hookFlag) gateFlag = true;
+const renderHtmlIdx = args.indexOf("--render-html");
+const renderHtmlFlag = renderHtmlIdx !== -1;
+if (renderHtmlFlag) args.splice(renderHtmlIdx, 1);
 
 // Stdout matrix for annotate / annotate-last / copilot annotate-last (#570).
 //
@@ -289,22 +294,15 @@ if (args[0] === "sessions") {
   // CODE REVIEW MODE
   // ============================================
 
-  // Parse local flags (strip before URL detection)
-  // --local is now the default for PR/MR reviews; --no-local opts out.
-  // --local kept for backwards compat (no-op).
-  const localIdx = args.indexOf("--local");
-  if (localIdx !== -1) args.splice(localIdx, 1);
-  const noLocalIdx = args.indexOf("--no-local");
-  if (noLocalIdx !== -1) args.splice(noLocalIdx, 1);
-
-  const urlArg = args[1];
-  const isPRMode = urlArg?.startsWith("http://") || urlArg?.startsWith("https://");
-  const useLocal = isPRMode && noLocalIdx === -1;
+  const reviewArgs = parseReviewArgs(args.slice(1));
+  const urlArg = reviewArgs.prUrl;
+  const isPRMode = urlArg !== undefined;
+  const useLocal = isPRMode && reviewArgs.useLocal;
 
   let rawPatch: string;
   let gitRef: string;
   let diffError: string | undefined;
-  let gitContext: Awaited<ReturnType<typeof getVcsContext>> | undefined;
+  let gitContext: Awaited<ReturnType<typeof prepareLocalReviewDiff>>["gitContext"] | undefined;
   let prMetadata: Awaited<ReturnType<typeof fetchPR>>["metadata"] | undefined;
   let initialDiffType: DiffType | undefined;
   let agentCwd: string | undefined;
@@ -499,14 +497,16 @@ if (args[0] === "sessions") {
     }
   } else {
     // --- Local Review Mode ---
-    gitContext = await getVcsContext();
     const config = loadConfig();
-    initialDiffType = gitContext.vcsType === "p4" ? "p4-default" : resolveDefaultDiffType(config);
-    const diffResult = await runVcsDiff(initialDiffType, gitContext.defaultBranch, undefined, {
+    const diffResult = await prepareLocalReviewDiff({
+      vcsType: reviewArgs.vcsType,
+      configuredDiffType: resolveDefaultDiffType(config),
       hideWhitespace: config.diffOptions?.hideWhitespace ?? false,
     });
-    rawPatch = diffResult.patch;
-    gitRef = diffResult.label;
+    gitContext = diffResult.gitContext;
+    initialDiffType = diffResult.diffType;
+    rawPatch = diffResult.rawPatch;
+    gitRef = diffResult.gitRef;
     diffError = diffResult.error;
   }
 
@@ -593,6 +593,7 @@ if (args[0] === "sessions") {
   }
 
   let markdown: string;
+  let rawHtml: string | undefined;
   let absolutePath: string;
   let folderPath: string | undefined;
   let annotateMode: "annotate" | "annotate-folder" = "annotate";
@@ -652,11 +653,16 @@ if (args[0] === "sessions") {
           process.exit(1);
         }
         const html = await htmlFile.text();
-        markdown = htmlToMarkdown(html);
+        if (renderHtmlFlag) {
+          rawHtml = html;
+          markdown = "";
+        } else {
+          markdown = htmlToMarkdown(html);
+          sourceConverted = true;
+        }
         absolutePath = resolvedArg;
         sourceInfo = path.basename(resolvedArg);
-        sourceConverted = true;
-        console.error(`Converted: ${absolutePath}`);
+        console.error(`${renderHtmlFlag ? "Raw HTML" : "Converted"}: ${absolutePath}`);
       } else {
         // Single markdown file annotation mode
         // Strip-first with literal-@ fallback (scoped-package-style names).
@@ -699,6 +705,8 @@ if (args[0] === "sessions") {
     shareBaseUrl,
     pasteApiUrl,
     gate: gateFlag,
+    rawHtml,
+    renderHtml: renderHtmlFlag,
     htmlContent: planHtmlContent,
     onReady: async (url, isRemote, port) => {
       handleAnnotateServerReady(url, isRemote, port);
@@ -1052,21 +1060,21 @@ if (args[0] === "sessions") {
   // ============================================
   //
   // Called by PreToolUse hook on EnterPlanMode.
-  // Reads the improvement hook file and returns additionalContext.
-  // No file = exit 0 silently (passthrough).
+  // Composes any enabled context sources (compound improvement hook,
+  // PFM reminder) into a single additionalContext payload.
+  // Nothing enabled = exit 0 silently (passthrough).
 
-  // Must consume stdin (Claude Code hooks deliver event JSON on stdin)
   await Bun.stdin.text();
 
   const hook = readImprovementHook("enterplanmode-improve");
-  if (!hook) process.exit(0);
+  const pfmEnabled = loadConfig().pfmReminder === true;
 
-  const context = [
-    "[Plannotator Improvement Hook]",
-    "The following corrective instructions were generated from analysis of previous plan denial patterns.",
-    "Apply these guidelines when writing your plan:\n",
-    hook.content,
-  ].join("\n");
+  const context = composeImproveContext({
+    pfmEnabled,
+    improvementHookContent: hook?.content ?? null,
+  });
+
+  if (context === null) process.exit(0);
 
   console.log(JSON.stringify({
     hookSpecificOutput: {
@@ -1084,35 +1092,108 @@ if (args[0] === "sessions") {
 
   // Read hook event from stdin
   const eventJson = await Bun.stdin.text();
+  if (!eventJson.trim()) {
+    process.exit(0);
+  }
+
+  let event: Record<string, any>;
+  try {
+    event = JSON.parse(eventJson);
+  } catch (e: any) {
+    console.error(`Failed to parse hook event from stdin: ${e?.message || e}`);
+    process.exit(1);
+  }
+
+  if (event.hook_event_name === "Stop") {
+    const rolloutPath =
+      (typeof event.transcript_path === "string" && event.transcript_path) ||
+      (process.env.CODEX_THREAD_ID
+        ? findCodexRolloutByThreadId(process.env.CODEX_THREAD_ID)
+        : null);
+
+    if (!rolloutPath || !existsSync(rolloutPath)) {
+      process.exit(0);
+    }
+
+    const latestPlan = getLatestCodexPlan(rolloutPath, {
+      turnId: typeof event.turn_id === "string" ? event.turn_id : undefined,
+      stopHookActive: !!event.stop_hook_active,
+    });
+
+    if (!latestPlan?.text) {
+      process.exit(0);
+    }
+
+    const planProject = (await detectProjectName()) ?? "_unknown";
+    const server = await startPlannotatorServer({
+      plan: latestPlan.text,
+      origin: "codex",
+      sharingEnabled,
+      shareBaseUrl,
+      pasteApiUrl,
+      htmlContent: planHtmlContent,
+      onReady: async (url, isRemote, port) => {
+        handleServerReady(url, isRemote, port);
+
+        if (isRemote && sharingEnabled) {
+          await writeRemoteShareLink(latestPlan.text, shareBaseUrl, "review the plan", "plan only").catch(() => {});
+        }
+      },
+    });
+
+    registerSession({
+      pid: process.pid,
+      port: server.port,
+      url: server.url,
+      mode: "plan",
+      project: planProject,
+      startedAt: new Date().toISOString(),
+      label: `plan-${planProject}`,
+    });
+
+    const result = await server.waitForDecision();
+    await Bun.sleep(1500);
+    server.stop();
+
+    if (result.approved) {
+      console.log("{}");
+    } else {
+      console.log(
+        JSON.stringify({
+          decision: "block",
+          reason: getPlanDeniedPrompt("codex", undefined, {
+            toolName: getPlanToolName("codex"),
+            planFileRule: "",
+            feedback: result.feedback || "Plan changes requested",
+          }),
+        })
+      );
+    }
+
+    process.exit(0);
+  }
 
   let planContent = "";
   let permissionMode = "default";
   let isGemini = false;
   let planFilename = "";
-  let event: Record<string, any>;
-  try {
-    event = JSON.parse(eventJson);
 
-    // Detect harness: Gemini sends plan_filename (file on disk), Claude Code sends plan (inline)
-    planFilename = event.tool_input?.plan_filename || event.tool_input?.plan_path || "";
-    isGemini = !!planFilename;
+  // Detect harness: Gemini sends plan_filename (file on disk), Claude Code sends plan (inline)
+  planFilename = event.tool_input?.plan_filename || event.tool_input?.plan_path || "";
+  isGemini = !!planFilename;
 
-    if (isGemini) {
-      // Reconstruct full plan path from transcript_path and session_id:
-      // transcript_path = <projectTempDir>/chats/session-...json
-      // plan lives at   = <projectTempDir>/<session_id>/plans/<plan_filename>
-      const projectTempDir = path.dirname(path.dirname(event.transcript_path));
-      const planFilePath = path.join(projectTempDir, event.session_id, "plans", planFilename);
-      planContent = await Bun.file(planFilePath).text();
-    } else {
-      planContent = event.tool_input?.plan || "";
-    }
-
-    permissionMode = event.permission_mode || "default";
-  } catch (e: any) {
-    console.error(`Failed to parse hook event from stdin: ${e?.message || e}`);
-    process.exit(1);
+  if (isGemini) {
+    // Reconstruct full plan path from transcript_path and session_id:
+    // transcript_path = <projectTempDir>/chats/session-...json
+    // plan lives at   = <projectTempDir>/<session_id>/plans/<plan_filename>
+    const projectTempDir = path.dirname(path.dirname(event.transcript_path));
+    const planFilePath = path.join(projectTempDir, event.session_id, "plans", planFilename);
+    planContent = await Bun.file(planFilePath).text();
+  } else {
+    planContent = event.tool_input?.plan || "";
   }
+
+  permissionMode = event.permission_mode || "default";
 
   if (!planContent) {
     console.error("No plan content in hook event");

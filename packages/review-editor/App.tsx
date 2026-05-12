@@ -153,6 +153,7 @@ const ReviewApp: React.FC = () => {
   const diffHideWhitespace = useConfigValue('diffHideWhitespace');
   const diffFontFamily = useConfigValue('diffFontFamily');
   const diffFontSize = useConfigValue('diffFontSize');
+  const diffTabSize = useConfigValue('diffTabSize');
 
   // Load custom diff font and override --font-mono for surrounding review elements
   useEffect(() => {
@@ -167,7 +168,8 @@ const ReviewApp: React.FC = () => {
     } else {
       document.documentElement.style.removeProperty('--diff-font-size-override');
     }
-  }, [diffFontFamily, diffFontSize]);
+    document.documentElement.style.setProperty('--diffs-tab-size', String(diffTabSize));
+  }, [diffFontFamily, diffFontSize, diffTabSize]);
 
   const reviewSidebar = useSidebar<ReviewSidebarTab>(true, 'annotations');
   const [isFileTreeOpen, setIsFileTreeOpen] = useState(true);
@@ -691,11 +693,6 @@ const ReviewApp: React.FC = () => {
           clearSearch();
         }
       }
-      // Cmd/Ctrl+Shift+C to copy diff
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'c') {
-        e.preventDefault();
-        handleCopyDiff();
-      }
       // Cmd/Ctrl+B to toggle file tree
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'b' && !isTypingTarget(e.target)) {
         e.preventDefault();
@@ -765,7 +762,7 @@ const ReviewApp: React.FC = () => {
           // Prefer the server's active base (survives page refresh / reconnect)
           // over the detected default, so the picker rehydrates to what the
           // server is actually using.
-          const initial = data.base || data.gitContext.defaultBranch || null;
+          const initial = data.base || data.gitContext.defaultBranch || data.gitContext.compareTarget?.fallback || null;
           setSelectedBase(initial);
           setCommittedBase(initial);
         }
@@ -787,7 +784,7 @@ const ReviewApp: React.FC = () => {
         if (data.error) setDiffError(data.error);
         if (data.isWSL) setIsWSL(true);
         // Mark diff type setup as pending on first run (local mode only)
-        if (data.diffType && !data.prMetadata && data.gitContext?.vcsType !== 'p4' && needsDiffTypeSetup()) {
+        if (data.diffType && !data.prMetadata && data.gitContext?.vcsType !== 'p4' && data.gitContext?.vcsType !== 'jj' && needsDiffTypeSetup()) {
           setDiffTypeSetupPending(true);
         }
       })
@@ -1168,6 +1165,8 @@ const ReviewApp: React.FC = () => {
               ...prev,
               defaultBranch: data.gitContext!.defaultBranch,
               diffOptions: data.gitContext!.diffOptions,
+              compareTarget: data.gitContext!.compareTarget,
+              jjEvologs: data.gitContext!.jjEvologs,
             };
           });
         }
@@ -1195,7 +1194,7 @@ const ReviewApp: React.FC = () => {
       if (branch === selectedBase) return;
       const previous = selectedBase;
       setSelectedBase(branch);
-      if (activeDiffBase === 'branch' || activeDiffBase === 'merge-base') {
+      if (activeDiffBase === 'branch' || activeDiffBase === 'merge-base' || activeDiffBase === 'jj-line' || activeDiffBase === 'jj-evolog') {
         const ok = await fetchDiffSwitch(diffType, branch);
         if (!ok) setSelectedBase(previous);
       }
@@ -1209,8 +1208,22 @@ const ReviewApp: React.FC = () => {
       ? `worktree:${activeWorktreePath}:${baseDiffType}`
       : baseDiffType;
     if (fullDiffType === diffType) return;
-    await fetchDiffSwitch(fullDiffType);
-  }, [diffType, activeWorktreePath, fetchDiffSwitch]);
+    // For evolog, default to the second entry (previous state of @) so the
+    // server doesn't fall back to the jj bookmark/trunk revset.
+    // When leaving evolog, restore the base to the detected compare target
+    // so other base-dependent modes (jj-line) don't inherit a commit ID.
+    const enteringEvolog =
+      baseDiffType === 'jj-evolog' && gitContext?.jjEvologs && gitContext.jjEvologs.length >= 2;
+    const leavingEvolog =
+      !enteringEvolog && activeDiffBase === 'jj-evolog' && gitContext?.defaultBranch;
+    const baseOverride = enteringEvolog
+      ? gitContext!.jjEvologs![1].commitId
+      : leavingEvolog
+        ? gitContext!.defaultBranch
+        : undefined;
+    if (baseOverride) setSelectedBase(baseOverride);
+    await fetchDiffSwitch(fullDiffType, baseOverride);
+  }, [diffType, activeWorktreePath, fetchDiffSwitch, gitContext]);
 
   // Switch worktree context (or back to main repo). Preserves the current
   // diff mode across the switch — if the reviewer was looking at "PR Diff"
@@ -1309,7 +1322,7 @@ const ReviewApp: React.FC = () => {
     // the new patch to arrive before refetching — otherwise the viewer can
     // briefly pair an old patch with the new base's content.
     reviewBase:
-      (activeDiffBase === 'branch' || activeDiffBase === 'merge-base')
+        (activeDiffBase === 'branch' || activeDiffBase === 'merge-base' || activeDiffBase === 'jj-line' || activeDiffBase === 'jj-evolog')
         ? committedBase ?? undefined
         : undefined,
     activeDiffBase,
@@ -1717,30 +1730,25 @@ const ReviewApp: React.FC = () => {
         <header className="py-1 flex items-center justify-between px-2 md:px-4 border-b border-border/50 bg-card/50 backdrop-blur-xl z-50">
           <div className="min-w-0 flex items-center gap-2 md:gap-3 -ml-1.5 md:-ml-3">
             {shouldShowFileTree && (
-              <button
-                onClick={() => setIsFileTreeOpen(prev => !prev)}
-                className={`p-1 rounded-md transition-all focus-visible:outline-none ${
-                  isFileTreeOpen
-                    ? 'text-primary'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-                }`}
-                title={isFileTreeOpen ? 'Hide file tree' : 'Show file tree'}
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                </svg>
-              </button>
+              <>
+                <button
+                  onClick={() => setIsFileTreeOpen(prev => !prev)}
+                  className={`p-1 rounded-md transition-all focus-visible:outline-none ${
+                    isFileTreeOpen
+                      ? 'text-primary'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                  }`}
+                  title={isFileTreeOpen ? 'Hide file tree' : 'Show file tree'}
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                  </svg>
+                </button>
+                <div className="w-px h-5 bg-border/50 mx-1 hidden md:block" />
+              </>
             )}
             {prMetadata ? (
               <div className="min-w-0 flex items-center gap-2 md:gap-3">
-                {(gitContext || agentCwd) && (
-                  <button
-                    onClick={() => setShowWorktreeDialog(true)}
-                    className="text-[10px] font-medium text-primary/80 bg-primary/10 hover:bg-primary/20 px-1.5 py-0.5 rounded transition-colors cursor-pointer"
-                  >
-                    worktree
-                  </button>
-                )}
                 <span
                   className="text-xs text-muted-foreground/60 inline-flex items-center gap-1 whitespace-nowrap"
                 >
@@ -1988,6 +1996,18 @@ const ReviewApp: React.FC = () => {
 
             <div className="w-px h-5 bg-border/50 mx-1 hidden md:block" />
 
+            <ReviewHeaderMenu
+              onOpenSettings={() => setOpenSettingsMenu(true)}
+              onOpenExport={() => setShowExportModal(true)}
+              onToggleFileTree={() => setIsFileTreeOpen(prev => !prev)}
+              onToggleSidebar={() => reviewSidebar.isOpen ? reviewSidebar.close() : reviewSidebar.open()}
+              isFileTreeOpen={isFileTreeOpen}
+              isSidebarOpen={reviewSidebar.isOpen}
+              appVersion={appVersion}
+            />
+
+            <div className="w-px h-5 bg-border/50 mx-1 hidden md:block" />
+
             {/* Sidebar tab toggles */}
             <button
               onClick={() => reviewSidebar.toggleTab('annotations')}
@@ -2039,18 +2059,6 @@ const ReviewApp: React.FC = () => {
                 )}
               </button>
             )}
-
-            <div className="w-px h-5 bg-border/50 mx-1 hidden md:block" />
-
-            <ReviewHeaderMenu
-              onOpenSettings={() => setOpenSettingsMenu(true)}
-              onOpenExport={() => setShowExportModal(true)}
-              onToggleFileTree={() => setIsFileTreeOpen(prev => !prev)}
-              onToggleSidebar={() => reviewSidebar.isOpen ? reviewSidebar.close() : reviewSidebar.open()}
-              isFileTreeOpen={isFileTreeOpen}
-              isSidebarOpen={reviewSidebar.isOpen}
-              appVersion={appVersion}
-            />
           </div>
         </header>
 
@@ -2083,8 +2091,11 @@ const ReviewApp: React.FC = () => {
                 currentBranch={gitContext?.currentBranch}
                 availableBranches={prMetadata ? undefined : gitContext?.availableBranches}
                 selectedBase={prMetadata ? undefined : selectedBase ?? undefined}
-                detectedBase={prMetadata ? undefined : gitContext?.defaultBranch}
+                detectedBase={prMetadata ? undefined : gitContext?.defaultBranch || gitContext?.compareTarget?.fallback}
                 onSelectBase={prMetadata ? undefined : handleBaseSelect}
+                compareTarget={gitContext?.compareTarget}
+                jjEvologs={prMetadata ? undefined : gitContext?.jjEvologs}
+                detectedEvoBase={prMetadata ? undefined : gitContext?.jjEvologs?.[1]?.commitId}
                 stagedFiles={stagedFiles}
                 onCopyRawDiff={handleCopyDiff}
                 canCopyRawDiff={!!diffData?.rawPatch}
@@ -2161,6 +2172,11 @@ const ReviewApp: React.FC = () => {
                           {activeDiffBase === 'staged' && "No staged changes. Stage some files with git add."}
                           {activeDiffBase === 'unstaged' && "No unstaged changes. All changes are staged."}
                           {activeDiffBase === 'last-commit' && `No changes in the last commit${activeWorktreePath ? ' in this worktree' : ''}.`}
+                          {activeDiffBase === 'jj-current' && "No changes in the current jj change."}
+                          {activeDiffBase === 'jj-last' && "No changes in the last jj change."}
+                          {activeDiffBase === 'jj-line' && `No changes in your line of work vs ${selectedBase || gitContext?.defaultBranch || '@-'}.`}
+                          {activeDiffBase === 'jj-evolog' && `No changes since evolution ${selectedBase ? selectedBase.slice(0, 8) : 'previous'} — the change looks the same as before.`}
+                          {activeDiffBase === 'jj-all' && "No files at the current jj change."}
                           {activeDiffBase === 'branch' && `No changes vs ${selectedBase || gitContext?.defaultBranch || 'main'}${activeWorktreePath ? ' in this worktree' : ''}.`}
                           {activeDiffBase === 'merge-base' && `No changes vs ${selectedBase || gitContext?.defaultBranch || 'main'}${activeWorktreePath ? ' in this worktree' : ''}.`}
                           {activeDiffBase === 'all' && `No tracked files${activeWorktreePath ? ' in this worktree' : ' in this repository'}.`}

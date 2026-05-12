@@ -14,5 +14,9 @@ export type {
   DiffOption,
   WorktreeInfo,
   GitContext,
+  JjEvoLogEntry,
   AvailableBranches,
+  CompareTargetConfig,
+  CompareTargetPickerCopy,
+  RepositoryContext,
 } from "./review-core";

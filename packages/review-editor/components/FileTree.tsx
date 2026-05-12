@@ -1,9 +1,10 @@
 import React, { useEffect, useCallback, useState, useMemo } from 'react';
 import { CodeAnnotation } from '@plannotator/ui/types';
-import type { AvailableBranches, DiffOption, WorktreeInfo } from '@plannotator/shared/types';
+import type { AvailableBranches, CompareTargetConfig, DiffOption, JjEvoLogEntry, WorktreeInfo } from '@plannotator/shared/types';
 import { buildFileTree, getAncestorPaths, getAllFolderPaths, getVisualFileOrder } from '../utils/buildFileTree';
 import { FileTreeNodeItem } from './FileTreeNode';
 import { BaseBranchPicker } from './BaseBranchPicker';
+import { EvoLogPicker } from './EvoLogPicker';
 import { DiffTypePicker } from './DiffTypePicker';
 import { WorktreePicker } from './WorktreePicker';
 import { getReviewSearchSideLabel, type ReviewSearchFileGroup, type ReviewSearchMatch } from '../utils/reviewSearch';
@@ -30,11 +31,16 @@ interface FileTreeProps {
   activeWorktreePath?: string | null;
   onSelectWorktree?: (path: string | null) => void;
   currentBranch?: string;
-  /** Base-branch picker — only meaningful when activeDiffType is "branch" or "merge-base". */
+  /** Compare target picker — base branch for Git, bookmark/revision for jj. */
   availableBranches?: AvailableBranches;
   selectedBase?: string;
   detectedBase?: string;
   onSelectBase?: (branch: string) => void;
+  compareTarget?: CompareTargetConfig;
+  /** Evolution log entries for the current jj change (jj-evolog mode only). */
+  jjEvologs?: JjEvoLogEntry[];
+  /** Default evolog commit ID to compare against (second evolog entry). */
+  detectedEvoBase?: string;
   stagedFiles?: Set<string>;
   onCopyRawDiff?: () => void;
   canCopyRawDiff?: boolean;
@@ -83,6 +89,9 @@ export const FileTree: React.FC<FileTreeProps> = ({
   selectedBase,
   detectedBase,
   onSelectBase,
+  compareTarget,
+  jjEvologs,
+  detectedEvoBase,
   stagedFiles,
   onCopyRawDiff,
   canCopyRawDiff = false,
@@ -366,15 +375,40 @@ export const FileTree: React.FC<FileTreeProps> = ({
         </div>
       )}
 
-      {/* Base-branch picker — only relevant for branch / merge-base diff types */}
-      {onSelectBase &&
+      {/* Evolog picker — only shown when jj-evolog diff type is active */}
+      {activeDiffType === 'jj-evolog' &&
+        onSelectBase &&
+        selectedBase &&
+        jjEvologs &&
+        jjEvologs.length >= 2 &&
+        detectedEvoBase && (
+          <div className="px-2 py-1.5 border-b border-border/30 flex items-center gap-2">
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground flex-shrink-0">
+              from evolution
+            </span>
+            <div className="flex-1 min-w-0">
+              <EvoLogPicker
+                entries={jjEvologs}
+                selectedCommitId={selectedBase}
+                detectedCommitId={detectedEvoBase}
+                onSelect={onSelectBase}
+                disabled={isLoadingDiff}
+              />
+            </div>
+          </div>
+        )}
+
+      {/* Compare target picker — only relevant for base-dependent diff types (not evolog) */}
+      {activeDiffType !== 'jj-evolog' &&
+        onSelectBase &&
         selectedBase &&
         detectedBase &&
         availableBranches &&
-        (activeDiffType === 'branch' || activeDiffType === 'merge-base') && (
+        activeDiffType &&
+        compareTarget?.diffTypes.includes(activeDiffType) && (
           <div className="px-2 py-1.5 border-b border-border/30 flex items-center gap-2">
             <span className="text-[10px] uppercase tracking-wide text-muted-foreground flex-shrink-0">
-              compare against
+              {compareTarget.picker.rowLabel}
             </span>
             <div className="flex-1 min-w-0">
               <BaseBranchPicker
@@ -383,6 +417,7 @@ export const FileTree: React.FC<FileTreeProps> = ({
                 detectedBase={detectedBase}
                 onSelectBase={onSelectBase}
                 disabled={isLoadingDiff}
+                copy={compareTarget.picker}
               />
             </div>
           </div>

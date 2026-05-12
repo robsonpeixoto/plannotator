@@ -64,6 +64,9 @@ import {
   buildPlanFileRule,
   getAnnotateMessageFeedbackPrompt,
 } from "@plannotator/shared/prompts";
+import { loadConfig } from "@plannotator/shared/config";
+import { readImprovementHook } from "@plannotator/shared/improvement-hooks";
+import { composeImproveContext } from "@plannotator/shared/pfm-reminder";
 import {
   stripConflictingPlanModeRules,
 } from "./plan-mode";
@@ -74,6 +77,7 @@ import {
   shouldApplyToolDefinitionRewrites,
   shouldInjectFullPlanningPrompt,
   shouldInjectGenericPlanReminder,
+  shouldModifyPrompts,
   shouldRegisterSubmitPlan,
   shouldRejectSubmitPlanForAgent,
   type PlannotatorOpenCodeOptions,
@@ -259,7 +263,7 @@ export const PlannotatorPlugin: Plugin = async (ctx, rawOptions?: PlannotatorOpe
     // that allows markdown file writing. OpenCode's original blocks ALL file edits,
     // but we need the agent to write plans, specs, docs, etc.
     "experimental.chat.messages.transform": async (input, output) => {
-      if (workflowOptions.workflow === "manual") return;
+      if (!shouldModifyPrompts(workflowOptions)) return;
 
       const lastUserAgent = getLastUserAgentFromMessages(output.messages);
       if (
@@ -313,7 +317,7 @@ tools (except writing markdown files), or otherwise make changes to the system.
 
     // Inject planning instructions into system prompt
     "experimental.chat.system.transform": async (input, output) => {
-      if (workflowOptions.workflow === "manual") return;
+      if (!shouldModifyPrompts(workflowOptions)) return;
 
       const systemText = output.system.join("\n");
       if (systemText.toLowerCase().includes("title generator") || systemText.toLowerCase().includes("generate a title")) {
@@ -350,8 +354,21 @@ tools (except writing markdown files), or otherwise make changes to the system.
       }
 
       if (shouldInjectFullPlanningPrompt(lastUserAgent, workflowOptions)) {
-        output.system = stripConflictingPlanModeRules(output.system);
+        const stripped = stripConflictingPlanModeRules(output.system);
+        output.system.length = 0;
+        output.system.push(...stripped);
         output.system.push(getPlanningPrompt());
+
+        const hook = readImprovementHook("enterplanmode-improve");
+        const pfmEnabled = loadConfig().pfmReminder === true;
+        const improveContext = composeImproveContext({
+          pfmEnabled,
+          improvementHookContent: hook?.content ?? null,
+        });
+        if (improveContext) {
+          output.system.push(improveContext);
+        }
+
         return;
       }
 
@@ -481,6 +498,9 @@ Use /plannotator-last or /plannotator-annotate for manual review, or set workflo
             opencodeClient: ctx.client,
             onReady: async (url, isRemote, port) => {
               handleServerReady(url, isRemote, port);
+              if (isRemote) {
+                ctx.client.app.log({ level: "info", message: `[Plannotator] Open in browser: ${url}` });
+              }
             },
           });
 

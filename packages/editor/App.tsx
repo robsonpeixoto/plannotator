@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
+import { toast, Toaster } from 'sonner';
 import { type Origin, getAgentName } from '@plannotator/shared/agents';
 import { parseMarkdownToBlocks, exportAnnotations, exportLinkedDocAnnotations, exportEditorAnnotations, exportCodeFileAnnotations, extractFrontmatter, wrapFeedbackForAgent, Frontmatter, type LinkedDocAnnotationEntry } from '@plannotator/ui/utils/parser';
 import { Viewer, ViewerHandle } from '@plannotator/ui/components/Viewer';
+import { HtmlViewer } from '@plannotator/ui/components/html-viewer';
 import { AnnotationPanel } from '@plannotator/ui/components/AnnotationPanel';
 import { ExportModal } from '@plannotator/ui/components/ExportModal';
 import { ImportModal } from '@plannotator/ui/components/ImportModal';
@@ -10,14 +12,15 @@ import { Annotation, Block, EditorMode, type CodeAnnotation, type InputMethod, t
 import { ThemeProvider } from '@plannotator/ui/components/ThemeProvider';
 import { Tooltip, TooltipProvider } from '@plannotator/ui/components/Tooltip';
 import { AnnotationToolstrip } from '@plannotator/ui/components/AnnotationToolstrip';
+import { FeedbackButton, ApproveButton, ExitButton } from '@plannotator/ui/components/ToolbarButtons';
+import { ApproveDropdown } from '@plannotator/ui/components/ApproveDropdown';
+import { PlanHeaderMenu } from '@plannotator/ui/components/PlanHeaderMenu';
+import { Settings } from '@plannotator/ui/components/Settings';
 import { StickyHeaderLane } from '@plannotator/ui/components/StickyHeaderLane';
 import { TaterSpriteRunning } from '@plannotator/ui/components/TaterSpriteRunning';
 import { TaterSpritePullup } from '@plannotator/ui/components/TaterSpritePullup';
-import { Settings } from '@plannotator/ui/components/Settings';
-import { FeedbackButton, ApproveButton, ExitButton } from '@plannotator/ui/components/ToolbarButtons';
-import { ApproveDropdown } from '@plannotator/ui/components/ApproveDropdown';
 import { useSharing } from '@plannotator/ui/hooks/useSharing';
-import { getCallbackConfig, CallbackAction, executeCallback, type ToastPayload } from '@plannotator/ui/utils/callback';
+import { getCallbackConfig, CallbackAction, executeCallback } from '@plannotator/ui/utils/callback';
 import { useAgents } from '@plannotator/ui/hooks/useAgents';
 import { useActiveSection } from '@plannotator/ui/hooks/useActiveSection';
 import { storage } from '@plannotator/ui/utils/storage';
@@ -45,7 +48,6 @@ import { OverlayScrollArea } from '@plannotator/ui/components/OverlayScrollArea'
 import { ScrollViewportContext } from '@plannotator/ui/hooks/useScrollViewport';
 import { useOverlayViewport } from '@plannotator/ui/hooks/useOverlayViewport';
 import { useIsMobile } from '@plannotator/ui/hooks/useIsMobile';
-import { PlanHeaderMenu } from '@plannotator/ui/components/PlanHeaderMenu';
 import {
   getPermissionModeSettings,
   needsPermissionModeSetup,
@@ -97,6 +99,7 @@ import { useCheckboxOverrides, derivePendingCheckboxBlockIds } from './hooks/use
 import { useAnnotationController } from '@plannotator/ui/hooks/useAnnotationController';
 import { StartRoomModal } from '@plannotator/ui/components/collab/StartRoomModal';
 import { useStartLiveRoom } from './hooks/collab/useStartLiveRoom';
+import { AppHeader } from './components/AppHeader';
 
 type NoteAutoSaveResults = {
   obsidian?: boolean;
@@ -148,8 +151,8 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
   }, [roomSession?.room?.planMarkdown]);
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
   const [selectedCodeAnnotationId, setSelectedCodeAnnotationId] = useState<string | null>(null);
-  const [blocks, setBlocks] = useState<Block[]>([]);
-  const [frontmatter, setFrontmatter] = useState<Frontmatter | null>(null);
+  const frontmatter = useMemo(() => extractFrontmatter(markdown).frontmatter, [markdown]);
+  const blocks = useMemo(() => parseMarkdownToBlocks(markdown), [markdown]);
   const [showExport, setShowExport] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showFeedbackPrompt, setShowFeedbackPrompt] = useState(false);
@@ -217,6 +220,8 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
   const [annotateSource, setAnnotateSource] = useState<'file' | 'message' | 'folder' | null>(null);
   const [sourceInfo, setSourceInfo] = useState<string | undefined>();
   const [sourceConverted, setSourceConverted] = useState(false);
+  const [renderAs, setRenderAs] = useState<'markdown' | 'html'>('markdown');
+  const [rawHtml, setRawHtml] = useState('');
   const [sourceFilePath, setSourceFilePath] = useState<string | undefined>();
   const [imageBaseDir, setImageBaseDir] = useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(true);
@@ -242,7 +247,6 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
   }, [repoInfo]);
 
   const [initialExportTab, setInitialExportTab] = useState<'share' | 'annotations' | 'notes'>();
-  const [noteSaveToast, setNoteSaveToast] = useState<ToastPayload>(null);
   const [isPlanDiffActive, setIsPlanDiffActive] = useState(false);
   const [planDiffMode, setPlanDiffMode] = useState<PlanDiffMode>('clean');
   const [previousPlan, setPreviousPlan] = useState<string | null>(null);
@@ -435,16 +439,23 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
     viewerRef, sidebar: linkedDocSidebar, sourceFilePath, sourceConverted,
   });
 
+  // Active document's directory — feeds both click-time popout fetches and
+  // the validator hook so they resolve against the same base. Drifting
+  // these would silently re-introduce the demote-correct-link bug.
+  const activeDocBaseDir = useMemo(
+    () => linkedDocHook.filepath
+      ? linkedDocHook.filepath.replace(/\/[^/]+$/, '')
+      : imageBaseDir?.includes('/') ? imageBaseDir : undefined,
+    [linkedDocHook.filepath, imageBaseDir],
+  );
+
   // Code file popout (read-only syntax-highlighted overlay)
   const codeFilePopout = useCodeFilePopout({
     buildUrl: useCallback((codePath: string) => {
-      const baseDir = linkedDocHook.filepath
-        ? linkedDocHook.filepath.replace(/\/[^/]+$/, '')
-        : imageBaseDir?.includes('/') ? imageBaseDir : undefined;
-      return baseDir
-        ? `/api/doc?path=${encodeURIComponent(codePath)}&base=${encodeURIComponent(baseDir)}`
+      return activeDocBaseDir
+        ? `/api/doc?path=${encodeURIComponent(codePath)}&base=${encodeURIComponent(activeDocBaseDir)}`
         : `/api/doc?path=${encodeURIComponent(codePath)}`;
-    }, [linkedDocHook.filepath, imageBaseDir]),
+    }, [activeDocBaseDir]),
   });
 
   // Archive browser
@@ -739,10 +750,10 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
     },
     shareBaseUrl,
     pasteApiUrl,
-    // Room mode disables static sharing entirely. The URL fragment
-    // (#key=<roomSecret>) is a room credential, not a deflated share
-    // payload, and must not be interpreted as a static share.
     roomModeActive,
+    rawHtml,
+    setRawHtml,
+    setRenderAs,
   );
 
   // Auto-save annotation drafts
@@ -805,10 +816,10 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
     fingerprint: roomAnnFingerprint,
   });
 
-  const handleTaterModeChange = (enabled: boolean) => {
+  const handleTaterModeChange = useCallback((enabled: boolean) => {
     setTaterMode(enabled);
     storage.setItem('plannotator-tater-mode', String(enabled));
-  };
+  }, []);
 
   const handleEditorModeChange = (mode: EditorMode) => {
     setEditorMode(mode);
@@ -835,7 +846,7 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
         if (!res.ok) throw new Error('Not in API mode');
         return res.json();
       })
-      .then((data: { plan: string; origin?: Origin; mode?: 'annotate' | 'annotate-last' | 'annotate-folder' | 'archive'; filePath?: string; sourceInfo?: string; sourceConverted?: boolean; gate?: boolean; sharingEnabled?: boolean; shareBaseUrl?: string; pasteApiUrl?: string; repoInfo?: { display: string; branch?: string; host?: string }; previousPlan?: string | null; versionInfo?: { version: number; totalVersions: number; project: string }; archivePlans?: ArchivedPlan[]; projectRoot?: string; isWSL?: boolean; serverConfig?: { displayName?: string; gitUser?: string } }) => {
+      .then((data: { plan: string; origin?: Origin; mode?: 'annotate' | 'annotate-last' | 'annotate-folder' | 'archive'; filePath?: string; sourceInfo?: string; sourceConverted?: boolean; gate?: boolean; renderAs?: 'html' | 'markdown'; rawHtml?: string; sharingEnabled?: boolean; shareBaseUrl?: string; pasteApiUrl?: string; repoInfo?: { display: string; branch?: string; host?: string }; previousPlan?: string | null; versionInfo?: { version: number; totalVersions: number; project: string }; archivePlans?: ArchivedPlan[]; projectRoot?: string; isWSL?: boolean; serverConfig?: { displayName?: string; gitUser?: string } }) => {
         // Initialize config store with server-provided values (config file > cookie > default)
         configStore.init(data.serverConfig);
         // gitUser drives the "Use git name" button in Settings; stays undefined (button hidden) when unavailable
@@ -847,6 +858,10 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
           archive.fetchPlans();
           setSharingEnabled(false);
           sidebar.open('archive');
+        } else if (data.renderAs === 'html' && data.rawHtml) {
+          setRenderAs('html');
+          setRawHtml(data.rawHtml);
+          setMarkdown('');
         } else if (data.mode === 'annotate-folder') {
           // Folder annotation mode: clear demo content, let user pick a file
           setMarkdown('');
@@ -913,12 +928,6 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
       })
       .finally(() => setIsLoading(false));
   }, [isLoadingShared, isSharedSession]);
-
-  useEffect(() => {
-    const { frontmatter: fm } = extractFrontmatter(markdown);
-    setFrontmatter(fm);
-    setBlocks(parseMarkdownToBlocks(markdown));
-  }, [markdown]);
 
   // Auto-save to notes apps on plan arrival (each gated by its autoSave toggle)
   const autoSaveAttempted = useRef(false);
@@ -992,19 +1001,18 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
 
         const failed = targets.filter(t => !data.results?.[t.toLowerCase()]?.success);
         if (failed.length === 0) {
-          setNoteSaveToast({ type: 'success', message: `Auto-saved to ${targets.join(' & ')}` });
+          toast.success(`Auto-saved to ${targets.join(' & ')}`);
         } else {
-          setNoteSaveToast({ type: 'error', message: `Auto-save failed for ${failed.join(' & ')}` });
+          toast.error(`Auto-save failed for ${failed.join(' & ')}`);
         }
 
         return results;
       })
       .catch(() => {
         autoSaveResultsRef.current = {};
-        setNoteSaveToast({ type: 'error', message: 'Auto-save failed' });
+        toast.error('Auto-save failed');
         return {};
-      })
-      .finally(() => setTimeout(() => setNoteSaveToast(null), 3000));
+      });
     autoSavePromiseRef.current = autoSavePromise;
   }, [isApiMode, markdown, isSharedSession, annotateMode]);
 
@@ -1472,7 +1480,7 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
     annotationController.update(id, updates);
   };
 
-  const handleIdentityChange = (oldIdentity: string, newIdentity: string) => {
+  const handleIdentityChange = useCallback((oldIdentity: string, newIdentity: string) => {
     if (roomModeActive) return;
     for (const ann of annotations) {
       if (ann.author === oldIdentity) {
@@ -1482,7 +1490,7 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
     setCodeAnnotations(prev => prev.map(ann =>
       ann.author === oldIdentity ? { ...ann, author: newIdentity } : ann
     ));
-  };
+  }, []);
 
   const handleAddGlobalAttachment = (image: ImageAttachment) => {
     setGlobalAttachments(prev => [...prev, image]);
@@ -1563,21 +1571,22 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
   const callbackConfig = React.useMemo(() => getCallbackConfig(), []);
 
   const callCallback = React.useCallback(async (action: CallbackAction) => {
-    if (!callbackConfig || isSubmitting || !shareUrl) return;
+    if (!callbackConfig || isSubmitting || (!shareUrl && !shortShareUrl)) return;
     setIsSubmitting(true);
     try {
-      const toast = await executeCallback(action, callbackConfig, shareUrl);
-      if (toast) {
-        setNoteSaveToast(toast);
-        setTimeout(() => setNoteSaveToast(null), 4000);
-        if (toast.type === 'success') {
+      const result = await executeCallback(action, callbackConfig, shortShareUrl || shareUrl);
+      if (result) {
+        if (result.type === 'success') {
+          toast.success(result.message);
           setSubmitted(action === CallbackAction.Approve ? 'approved' : 'denied');
+        } else {
+          toast.error(result.message);
         }
       }
     } finally {
       setIsSubmitting(false);
     }
-  }, [callbackConfig, isSubmitting, shareUrl]);
+  }, [callbackConfig, isSubmitting, shareUrl, shortShareUrl]);
 
   const handleCallbackApprove = React.useCallback(() => callCallback(CallbackAction.Approve), [callCallback]);
   const handleCallbackFeedback = React.useCallback(() => callCallback(CallbackAction.Feedback), [callCallback]);
@@ -1591,8 +1600,7 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
     a.download = 'annotations.md';
     a.click();
     URL.revokeObjectURL(url);
-    setNoteSaveToast({ type: 'success', message: 'Downloaded annotations' });
-    setTimeout(() => setNoteSaveToast(null), 3000);
+    toast.success('Downloaded annotations');
   };
 
   const handleQuickSaveToNotes = async (target: 'obsidian' | 'bear' | 'octarine') => {
@@ -1638,14 +1646,13 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
       const data = await res.json();
       const result = data.results?.[target];
       if (result?.success) {
-        setNoteSaveToast({ type: 'success', message: `Saved to ${targetName}` });
+        toast.success(`Saved to ${targetName}`);
       } else {
-        setNoteSaveToast({ type: 'error', message: result?.error || 'Save failed' });
+        toast.error(result?.error || 'Save failed');
       }
     } catch {
-      setNoteSaveToast({ type: 'error', message: 'Save failed' });
+      toast.error('Save failed');
     }
-    setTimeout(() => setNoteSaveToast(null), 3000);
   };
 
   // Agent Instructions — copy a clipboard payload teaching external agents
@@ -1656,37 +1663,31 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
     const payload = buildPlanAgentInstructions(window.location.origin);
     try {
       await navigator.clipboard.writeText(payload);
-      setNoteSaveToast({ type: 'success', message: 'Agent instructions copied' });
+      toast.success('Agent instructions copied');
     } catch {
-      setNoteSaveToast({ type: 'error', message: 'Failed to copy' });
+      toast.error('Failed to copy');
     }
-    setTimeout(() => setNoteSaveToast(null), 3000);
   };
 
   const handleCopyShareLink = async () => {
+    const url = shortShareUrl || shareUrl;
+    if (!url) return;
     try {
-      await navigator.clipboard.writeText(shareUrl);
-      setNoteSaveToast({ type: 'success', message: 'Share link copied' });
+      await navigator.clipboard.writeText(url);
+      toast.success('Share link copied');
     } catch {
-      setNoteSaveToast({ type: 'error', message: 'Failed to copy' });
+      toast.error('Failed to copy');
     }
-    setTimeout(() => setNoteSaveToast(null), 3000);
   };
 
-  // Room-mode copy handlers. Share a single clipboard + toast helper so
-  // the three call sites can't drift (success-vs-error copy, timeout,
-  // toast slot reuse). The `noteSaveToast` slot is reused for both
-  // flows — small grief that two kinds of message share one slot, but
-  // avoids a second toast system for a handful of rare clicks.
   const copyToClipboardWithToast = React.useCallback(
     async (text: string, successMessage: string, errorMessage: string) => {
       try {
         await navigator.clipboard.writeText(text);
-        setNoteSaveToast({ type: 'success', message: successMessage });
+        toast.success(successMessage);
       } catch {
-        setNoteSaveToast({ type: 'error', message: errorMessage });
+        toast.error(errorMessage);
       }
-      setTimeout(() => setNoteSaveToast(null), 2500);
     },
     [],
   );
@@ -1810,6 +1811,98 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
   ]);
 
   const agentName = useMemo(() => getAgentName(origin), [origin]);
+
+  // Header handlers ref — stores latest handler references so the stable
+  // callbacks below always call the current version without needing useCallback
+  // dep arrays for every handler. This lets React.memo on AppHeader work.
+  const headerHandlersRef = useRef({
+    handleApprove,
+    handleDeny,
+    handleAnnotateApprove,
+    handleAnnotateFeedback,
+    handleAnnotateExit,
+    handleQuickSaveToNotes,
+    handleDownloadAnnotations,
+    handleCopyAgentInstructions,
+    handleCopyShareLink,
+    getAgentWarning,
+    getDocAnnotations: linkedDocHook.getDocAnnotations,
+  });
+  headerHandlersRef.current = {
+    handleApprove,
+    handleDeny,
+    handleAnnotateApprove,
+    handleAnnotateFeedback,
+    handleAnnotateExit,
+    handleQuickSaveToNotes,
+    handleDownloadAnnotations,
+    handleCopyAgentInstructions,
+    handleCopyShareLink,
+    getAgentWarning,
+    getDocAnnotations: linkedDocHook.getDocAnnotations,
+  };
+
+  const handleHeaderAnnotateExit = useCallback(() => {
+    if (hasAnyAnnotations) {
+      setExitWarningAction('close');
+      setShowExitWarning(true);
+    } else {
+      headerHandlersRef.current.handleAnnotateExit();
+    }
+  }, [hasAnyAnnotations]);
+
+  const handleHeaderFeedback = useCallback(() => {
+    const h = headerHandlersRef.current;
+    const docAnnotations = h.getDocAnnotations();
+    const hasDocAnnotations = Array.from(docAnnotations.values()).some(
+      (d) => d.annotations.length > 0 || d.globalAttachments.length > 0
+    );
+    if (allAnnotations.length === 0 && codeAnnotations.length === 0 && editorAnnotations.length === 0 && !hasDocAnnotations) {
+      setShowFeedbackPrompt(true);
+    } else {
+      h.handleDeny();
+    }
+  }, [allAnnotations.length, codeAnnotations.length, editorAnnotations.length]);
+
+  const handleHeaderApprove = useCallback(() => {
+    const h = headerHandlersRef.current;
+    if (annotateMode) {
+      if (hasAnyAnnotations) {
+        setExitWarningAction('approve');
+        setShowExitWarning(true);
+        return;
+      }
+      h.handleAnnotateApprove();
+      return;
+    }
+    if (origin === 'claude-code' && (allAnnotations.length > 0 || codeAnnotations.length > 0)) {
+      setShowClaudeCodeWarning(true);
+      return;
+    }
+    if (origin === 'opencode') {
+      const warning = h.getAgentWarning();
+      if (warning) {
+        setAgentWarningMessage(warning);
+        setShowAgentWarning(true);
+        return;
+      }
+    }
+    h.handleApprove();
+  }, [annotateMode, hasAnyAnnotations, origin, allAnnotations.length, codeAnnotations.length]);
+
+  const handleHeaderAnnotateFeedback = useCallback(() => headerHandlersRef.current.handleAnnotateFeedback(), []);
+  const handleHeaderAnnotateApprove = useCallback(() => headerHandlersRef.current.handleAnnotateApprove(), []);
+  const handleHeaderDownloadAnnotations = useCallback(() => headerHandlersRef.current.handleDownloadAnnotations(), []);
+  const handleHeaderCopyAgentInstructions = useCallback(() => headerHandlersRef.current.handleCopyAgentInstructions(), []);
+  const handleHeaderCopyShareLink = useCallback(() => headerHandlersRef.current.handleCopyShareLink(), []);
+  const handleOpenSettings = useCallback(() => setMobileSettingsOpen(true), []);
+  const handleCloseSettings = useCallback(() => setMobileSettingsOpen(false), []);
+  const handleOpenExport = useCallback(() => { setInitialExportTab(undefined); setShowExport(true); }, []);
+  const handlePrint = useCallback(() => window.print(), []);
+  const handleOpenImport = useCallback(() => setShowImport(true), []);
+  const handleSaveToObsidian = useCallback(() => headerHandlersRef.current.handleQuickSaveToNotes('obsidian'), []);
+  const handleSaveToOctarine = useCallback(() => headerHandlersRef.current.handleQuickSaveToNotes('octarine'), []);
+  const handleSaveToBear = useCallback(() => headerHandlersRef.current.handleQuickSaveToNotes('bear'), []);
 
   const planMaxWidth = useMemo(() => {
     const widths: Record<PlanWidth, number> = { compact: 832, default: 1040, wide: 1280 };
@@ -2021,8 +2114,7 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
                   // success, which transitions this tab to the terminal
                   // screen — the toast is the last UX before that swap,
                   // so it has to fire first.
-                  setNoteSaveToast({ type: 'success', message: 'Room deleted' });
-                  setTimeout(() => setNoteSaveToast(null), 3000);
+                  toast.success('Room deleted');
                   void roomAdmin.run('delete');
                 }}
               />
@@ -2297,66 +2389,62 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
                     </div>
                   </div>
                 )}
-                <Viewer
-                  key={linkedDocHook.isActive ? `doc:${linkedDocHook.filepath}` : 'plan'}
-                  ref={viewerRef}
-                  blocks={blocks}
-                  markdown={markdown}
-                  frontmatter={frontmatter}
-                  annotations={viewerAnnotations}
-                  onAddAnnotation={handleAddAnnotation}
-                  onSelectAnnotation={handleSelectAnnotation}
-                  selectedAnnotationId={selectedAnnotationId}
-                  mode={editorMode}
-                  inputMethod={inputMethod}
-                  taterMode={taterMode}
-                  // Room mode: stamp new annotations with the joined
-                  // display name instead of the cookie-backed Tater
-                  // identity. The Tater cookie lives per-origin; on
-                  // room.plannotator.ai it's either unset or stale,
-                  // so without this override a participant's annotation
-                  // author would not match the name on their cursor.
-                  authorOverride={roomSession?.user?.name}
-                  // Room mode: hide local-only global attachments from the
-                  // Viewer so the creator doesn't see material participants
-                  // don't have. Same motivation as excluding them from
-                  // consolidated feedback. Also strip the attachment
-                  // callbacks in room mode so the add-attachment button
-                  // doesn't render an affordance that would no-op.
-                  globalAttachments={roomModeActive ? [] : globalAttachments}
-                  // Room mode: omit attachment callbacks so Viewer's
-                  // AttachmentsButton gate (`onAdd && onRemove`) yields
-                  // false and the affordance doesn't render at all.
-                  onAddGlobalAttachment={roomModeActive ? undefined : handleAddGlobalAttachment}
-                  onRemoveGlobalAttachment={roomModeActive ? undefined : handleRemoveGlobalAttachment}
-                  // Room mode: hide the per-annotation CommentPopover
-                  // attachments UI too. Live Rooms V1 strips image
-                  // attachments at room-create time and doesn't carry
-                  // new attachments over the wire, so the popover's
-                  // AttachmentsButton would silently drop whatever the
-                  // user added.
-                  attachmentsEnabled={!roomModeActive}
-                  repoInfo={repoInfo}
-                  stickyActions={uiPrefs.stickyActionsEnabled}
-                  planDiffStats={linkedDocHook.isActive ? null : planDiff.diffStats}
-                  isPlanDiffActive={isPlanDiffActive}
-                  onPlanDiffToggle={() => setIsPlanDiffActive(!isPlanDiffActive)}
-                  hasPreviousVersion={!linkedDocHook.isActive && planDiff.hasPreviousVersion}
-                  showDemoBadge={!isApiMode && !isLoadingShared && !isSharedSession && !roomModeActive}
-                  maxWidth={annotateReaderMaxWidth}
-                  onOpenLinkedDoc={roomModeActive ? undefined : handleOpenLinkedDoc}
-                  onOpenCodeFile={codeFilePopout.open}
-                  localDocLinksEnabled={!roomModeActive}
-                  linkedDocInfo={linkedDocHook.isActive ? { filepath: linkedDocHook.filepath!, onBack: handleLinkedDocBack, label: fileBrowser.dirs.find(d => d.path === fileBrowser.activeDirPath)?.isVault ? 'Vault File' : fileBrowser.activeFile ? 'File' : undefined, backLabel } : null}
-                  imageBaseDir={imageBaseDir}
-                  copyLabel={annotateSource === 'message' ? 'Copy message' : annotateSource === 'file' || annotateSource === 'folder' ? 'Copy file' : undefined}
-                  archiveInfo={archive.currentInfo}
-                  sourceInfo={sourceInfo}
-                  onToggleCheckbox={checkbox.toggle}
-                  checkboxOverrides={checkbox.overrides}
-                  actionsLabelMode={actionsLabelMode}
-                  onHighlightSurfaceReset={bumpHighlightSurfaceGeneration}
-                />
+                {renderAs === 'html' ? (
+                  <HtmlViewer
+                    ref={viewerRef}
+                    rawHtml={rawHtml}
+                    annotations={viewerAnnotations}
+                    onAddAnnotation={handleAddAnnotation}
+                    onSelectAnnotation={handleSelectAnnotation}
+                    selectedAnnotationId={selectedAnnotationId}
+                    mode={editorMode}
+                    globalAttachments={globalAttachments}
+                    onAddGlobalAttachment={handleAddGlobalAttachment}
+                    onRemoveGlobalAttachment={handleRemoveGlobalAttachment}
+                    maxWidth={annotateReaderMaxWidth}
+                  />
+                ) : (
+                  <Viewer
+                    key={linkedDocHook.isActive ? `doc:${linkedDocHook.filepath}` : 'plan'}
+                    ref={viewerRef}
+                    blocks={blocks}
+                    markdown={markdown}
+                    frontmatter={frontmatter}
+                    annotations={viewerAnnotations}
+                    onAddAnnotation={handleAddAnnotation}
+                    onSelectAnnotation={handleSelectAnnotation}
+                    selectedAnnotationId={selectedAnnotationId}
+                    mode={editorMode}
+                    inputMethod={inputMethod}
+                    taterMode={taterMode}
+                    authorOverride={roomSession?.user?.name}
+                    globalAttachments={roomModeActive ? [] : globalAttachments}
+                    onAddGlobalAttachment={roomModeActive ? undefined : handleAddGlobalAttachment}
+                    onRemoveGlobalAttachment={roomModeActive ? undefined : handleRemoveGlobalAttachment}
+                    attachmentsEnabled={!roomModeActive}
+                    repoInfo={repoInfo}
+                    stickyActions={uiPrefs.stickyActionsEnabled}
+                    planDiffStats={linkedDocHook.isActive ? null : planDiff.diffStats}
+                    isPlanDiffActive={isPlanDiffActive}
+                    onPlanDiffToggle={() => setIsPlanDiffActive(!isPlanDiffActive)}
+                    hasPreviousVersion={!linkedDocHook.isActive && planDiff.hasPreviousVersion}
+                    showDemoBadge={!isApiMode && !isLoadingShared && !isSharedSession && !roomModeActive}
+                    maxWidth={annotateReaderMaxWidth}
+                    onOpenLinkedDoc={roomModeActive ? undefined : handleOpenLinkedDoc}
+                    onOpenCodeFile={codeFilePopout.open}
+                    localDocLinksEnabled={!roomModeActive}
+                    linkedDocInfo={linkedDocHook.isActive ? { filepath: linkedDocHook.filepath!, onBack: handleLinkedDocBack, label: fileBrowser.dirs.find(d => d.path === fileBrowser.activeDirPath)?.isVault ? 'Vault File' : fileBrowser.activeFile ? 'File' : undefined, backLabel } : null}
+                    imageBaseDir={imageBaseDir}
+                    codePathBaseDir={activeDocBaseDir}
+                    copyLabel={annotateSource === 'message' ? 'Copy message' : annotateSource === 'file' || annotateSource === 'folder' ? 'Copy file' : undefined}
+                    archiveInfo={archive.currentInfo}
+                    sourceInfo={sourceInfo}
+                    onToggleCheckbox={checkbox.toggle}
+                    checkboxOverrides={checkbox.overrides}
+                    actionsLabelMode={actionsLabelMode}
+                    onHighlightSurfaceReset={bumpHighlightSurfaceGeneration}
+                  />
+                )}
               </div>
             </div>
           </OverlayScrollArea>
@@ -2385,7 +2473,7 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
             onQuickCopy={async () => {
               await navigator.clipboard.writeText(wrapFeedbackForAgent(annotationsOutput));
             }}
-            onShare={canShareCurrentSession && shareUrl ? () => { setIsPanelOpen(false); setInitialExportTab('share'); setShowExport(true); } : undefined}
+            onShare={canShareCurrentSession && (shareUrl || shortShareUrl) ? () => { setIsPanelOpen(false); setInitialExportTab('share'); setShowExport(true); } : undefined}
             otherFileAnnotations={otherFileAnnotations}
             onOtherFileAnnotationsClick={handleFlashAnnotatedFiles}
             // Room-mode pending/failed surface. Local mode provides undefined
@@ -2561,14 +2649,6 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
           variant="warning"
         />
 
-        {/*
-          Room admin error toast — bottom-right, separated from the
-          top-right `noteSaveToast` slot so a transient "link copied"
-          success doesn't stomp a "Failed to delete room" that still
-          needs the user's eyes. Provides a Dismiss button;
-          auto-dismisses after 8s so it doesn't stick around
-          indefinitely.
-        */}
         {roomAdmin.error && (
           <RoomAdminErrorToast
             action={roomAdmin.error.action}
@@ -2577,16 +2657,23 @@ const App: React.FC<AppProps> = ({ roomSession }) => {
           />
         )}
 
-        {/* Save-to-notes toast */}
-        {noteSaveToast && (
-          <div className={`fixed top-16 right-4 z-50 px-3 py-2 rounded-lg text-xs font-medium shadow-lg transition-opacity ${
-            noteSaveToast.type === 'success'
-              ? 'bg-success/15 text-success border border-success/30'
-              : 'bg-destructive/15 text-destructive border border-destructive/30'
-          }`}>
-            {noteSaveToast.message}
-          </div>
-        )}
+        <Toaster
+          position="top-right"
+          offset={64}
+          toastOptions={{
+            style: {
+              '--normal-bg': 'var(--card)',
+              '--normal-border': 'var(--border)',
+              '--normal-text': 'var(--foreground)',
+              '--success-bg': 'oklch(from var(--success) l c h / 0.15)',
+              '--success-border': 'oklch(from var(--success) l c h / 0.3)',
+              '--success-text': 'var(--success)',
+              '--error-bg': 'oklch(from var(--destructive) l c h / 0.15)',
+              '--error-border': 'oklch(from var(--destructive) l c h / 0.3)',
+              '--error-text': 'var(--destructive)',
+            } as React.CSSProperties,
+          }}
+        />
 
         {/* Completion overlay - shown after approve/deny */}
         <CompletionOverlay

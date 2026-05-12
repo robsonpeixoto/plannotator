@@ -6,6 +6,7 @@ import {
   OVERFLOW_OPTIONS,
   INDICATOR_OPTIONS,
   LINE_DIFF_OPTIONS,
+  LINE_BG_INTENSITY_OPTIONS,
 } from '@plannotator/ui/components/Settings';
 
 function CompactSegmented<T extends string>({ options, value, onChange }: {
@@ -28,6 +29,36 @@ function CompactSegmented<T extends string>({ options, value, onChange }: {
           {opt.label}
         </button>
       ))}
+    </div>
+  );
+}
+
+function CompactStepper({ value, min, max, onChange, label }: {
+  value: number;
+  min: number;
+  max: number;
+  onChange: (v: number) => void;
+  label: string;
+}) {
+  const clamp = (n: number) => Math.max(min, Math.min(max, n));
+  return (
+    <div className="w-full flex items-center justify-between py-1">
+      <span className="text-[11px] text-muted-foreground">{label}</span>
+      <div className="flex items-center gap-px bg-muted/60 rounded-md p-px">
+        <button
+          onClick={() => onChange(clamp(value - 1))}
+          disabled={value <= min}
+          className="px-1.5 py-0.5 text-[11px] rounded-[5px] text-muted-foreground hover:text-foreground hover:bg-background disabled:opacity-40 disabled:hover:bg-transparent"
+          aria-label={`Decrease ${label}`}
+        >−</button>
+        <span className="px-2 text-[11px] tabular-nums w-5 text-center">{value}</span>
+        <button
+          onClick={() => onChange(clamp(value + 1))}
+          disabled={value >= max}
+          className="px-1.5 py-0.5 text-[11px] rounded-[5px] text-muted-foreground hover:text-foreground hover:bg-background disabled:opacity-40 disabled:hover:bg-transparent"
+          aria-label={`Increase ${label}`}
+        >+</button>
+      </div>
     </div>
   );
 }
@@ -64,6 +95,8 @@ export const DiffOptionsPopover: React.FC = () => {
   const diffShowLineNumbers = useConfigValue('diffShowLineNumbers');
   const diffShowBackground = useConfigValue('diffShowBackground');
   const diffHideWhitespace = useConfigValue('diffHideWhitespace');
+  const diffTabSize = useConfigValue('diffTabSize');
+  const diffLineBgIntensity = useConfigValue('diffLineBgIntensity');
 
   return (
     <Popover.Root>
@@ -113,7 +146,19 @@ export const DiffOptionsPopover: React.FC = () => {
             <div>
               <CompactToggle checked={diffShowLineNumbers} onChange={(v) => configStore.set('diffShowLineNumbers', v)} label="Line numbers" />
               <CompactToggle checked={diffShowBackground} onChange={(v) => configStore.set('diffShowBackground', v)} label="Diff background" />
+              {diffShowBackground && (
+                <div className="pl-3 pr-0.5 pb-1 -mt-0.5">
+                  <CompactSegmented options={LINE_BG_INTENSITY_OPTIONS} value={diffLineBgIntensity} onChange={(v) => configStore.set('diffLineBgIntensity', v)} />
+                </div>
+              )}
               <CompactToggle checked={diffHideWhitespace} onChange={(v) => configStore.set('diffHideWhitespace', v)} label="Hide whitespace" />
+              <CompactStepper
+                label="Tab size"
+                value={diffTabSize}
+                min={1}
+                max={8}
+                onChange={(v) => configStore.set('diffTabSize', v)}
+              />
             </div>
           </div>
         </Popover.Content>

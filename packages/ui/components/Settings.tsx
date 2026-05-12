@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import type { Origin } from '@plannotator/shared/agents';
+import type { DiffLineBgIntensity } from '@plannotator/shared/config';
 import { configStore, useConfigValue } from '../config';
 import { loadDiffFont } from '../utils/diffFonts';
 import { TaterSpritePullup } from './TaterSpritePullup';
@@ -63,6 +64,7 @@ import { ThemeTab } from './ThemeTab';
 import { isMac, modKey, altKey } from '../utils/platform';
 import { getAIProviderSettings } from '../utils/aiProvider';
 import { AISettingsTab } from './AISettingsTab';
+import { HooksTab } from './settings/HooksTab';
 import { OverlayScrollArea } from './OverlayScrollArea';
 import {
   getFileBrowserSettings,
@@ -70,7 +72,7 @@ import {
   type FileBrowserSettings,
 } from '../utils/fileBrowser';
 
-type SettingsTab = 'general' | 'theme' | 'git' | 'display' | 'saving' | 'labels' | 'shortcuts' | 'ai' | 'files' | 'obsidian' | 'bear' | 'octarine' | 'comments';
+type SettingsTab = 'general' | 'theme' | 'git' | 'display' | 'saving' | 'labels' | 'shortcuts' | 'ai' | 'files' | 'obsidian' | 'bear' | 'octarine' | 'comments' | 'hooks';
 
 interface SettingsProps {
   taterMode: boolean;
@@ -121,6 +123,11 @@ export const LINE_DIFF_OPTIONS = [
   { value: 'word' as const, label: 'Word' },
   { value: 'char' as const, label: 'Char' },
   { value: 'none' as const, label: 'None' },
+];
+export const LINE_BG_INTENSITY_OPTIONS: { value: DiffLineBgIntensity; label: string }[] = [
+  { value: 'subtle', label: 'Subtle' },
+  { value: 'normal', label: 'Normal' },
+  { value: 'strong', label: 'Strong' },
 ];
 const DEFAULT_DIFF_TYPE_OPTIONS = [
   { value: 'uncommitted' as const, label: 'All Changes', description: "Everything you've changed since your last commit" },
@@ -229,6 +236,7 @@ const ReviewDisplayTab: React.FC = () => {
   const diffLineDiffType = useConfigValue('diffLineDiffType');
   const diffShowLineNumbers = useConfigValue('diffShowLineNumbers');
   const diffShowBackground = useConfigValue('diffShowBackground');
+  const diffLineBgIntensity = useConfigValue('diffLineBgIntensity');
   const diffHideWhitespace = useConfigValue('diffHideWhitespace');
   const diffFontFamily = useConfigValue('diffFontFamily');
   const diffFontSize = useConfigValue('diffFontSize');
@@ -362,6 +370,17 @@ const ReviewDisplayTab: React.FC = () => {
         label="Show Diff Background"
         description="Colored backgrounds on added/deleted lines"
       />
+
+      {/* Line Background Intensity */}
+      {diffShowBackground && (
+        <div className="space-y-2 pl-4">
+          <div>
+            <div className="text-sm font-medium">Line Background Intensity</div>
+            <div className="text-xs text-muted-foreground">How prominent the colored line backgrounds appear</div>
+          </div>
+          <SegmentedControl options={LINE_BG_INTENSITY_OPTIONS} value={diffLineBgIntensity} onChange={(v) => configStore.set('diffLineBgIntensity', v)} />
+        </div>
+      )}
 
       <div className="border-t border-border" />
 
@@ -583,6 +602,16 @@ const CommentsTab: React.FC = () => {
 
 export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange, onIdentityChange, origin, mode = 'plan', onUIPreferencesChange, externalOpen, onExternalClose, aiProviders = [], gitUser }) => {
   const [showDialog, setShowDialog] = useState(false);
+  const [themePreview, setThemePreview] = useState(false);
+
+  useEffect(() => {
+    if (!themePreview) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setThemePreview(false); setShowDialog(true); }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [themePreview]);
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
   const [identity, setIdentity] = useState('');
   const [presenceColor, setPresenceColorState] = useState<string>(PRESENCE_SWATCHES[0]);
@@ -632,6 +661,9 @@ export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange
       }
     }
     t.push({ id: 'shortcuts', label: 'Shortcuts' });
+    if (mode === 'plan') {
+      t.push({ id: 'hooks', label: 'Hooks' });
+    }
     return t;
   }, [mode, aiProviders.length]);
 
@@ -823,7 +855,7 @@ export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange
         </svg>
       </button>
 
-      {showDialog && createPortal(
+      {showDialog && !themePreview && createPortal(
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center bg-background/80 backdrop-blur-sm p-4"
           onClick={() => setShowDialog(false)}
@@ -1119,7 +1151,7 @@ export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange
                 )}
 
                 {/* === THEME TAB === */}
-                {activeTab === 'theme' && <ThemeTab />}
+                {activeTab === 'theme' && <ThemeTab onPreview={() => { setShowDialog(false); setThemePreview(true); }} />}
 
                 {/* === GIT TAB === */}
                 {activeTab === 'git' && mode === 'review' && (
@@ -1727,6 +1759,9 @@ export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange
                   </>
                 )}
 
+                {/* === HOOKS TAB === */}
+                {activeTab === 'hooks' && <HooksTab />}
+
                 {/* === OBSIDIAN TAB === */}
                 {activeTab === 'obsidian' && (
                   <>
@@ -2095,6 +2130,30 @@ tags: [plan, ...]
 
               </div>
               </OverlayScrollArea>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {themePreview && createPortal(
+        <div className="fixed inset-0 z-[100] flex flex-col pointer-events-none">
+          <div className="flex-1" />
+          <div
+            className="pointer-events-auto w-full bg-card border-t-2 border-primary/30 shadow-[0_-4px_20px_rgba(0,0,0,0.4)] flex flex-col max-h-[35vh] overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-border flex-shrink-0">
+              <span className="text-xs font-medium text-muted-foreground">Theme Preview</span>
+              <button
+                onClick={() => { setThemePreview(false); setShowDialog(true); }}
+                className="px-2.5 py-1 rounded-md text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+              >
+                Done
+              </button>
+            </div>
+            <div className="p-3 overflow-y-auto flex-1 min-h-0">
+              <ThemeTab compact />
             </div>
           </div>
         </div>,

@@ -15,7 +15,8 @@ import { isRemoteSession, getServerHostname, getServerPort } from "./remote";
 import { getRepoInfo } from "./repo";
 import type { Origin } from "@plannotator/shared/agents";
 import { handleImage, handleUpload, handleServerReady, handleDraftSave, handleDraftLoad, handleDraftDelete, handleFavicon } from "./shared-handlers";
-import { handleDoc, handleFileBrowserFiles, handleObsidianVaults, handleObsidianFiles, handleObsidianDoc } from "./reference-handlers";
+import { handleDoc, handleDocExists, handleFileBrowserFiles, handleObsidianVaults, handleObsidianFiles, handleObsidianDoc } from "./reference-handlers";
+import { warmFileListCache } from "@plannotator/shared/resolve-file";
 import { contentHash, deleteDraft } from "./draft";
 import { createExternalAnnotationHandler } from "./external-annotations";
 import { saveConfig, detectGitUser, getServerConfig } from "./config";
@@ -55,6 +56,10 @@ export interface AnnotateServerOptions {
   sourceConverted?: boolean;
   /** Enable review-gate UX: adds an Approve button alongside Close/Send Annotations (#570) */
   gate?: boolean;
+  /** Raw HTML content for direct iframe rendering (--render-html mode) */
+  rawHtml?: string;
+  /** Render HTML as-is in an iframe instead of converting to markdown */
+  renderHtml?: boolean;
   /** Called when server starts with the URL, remote status, and port */
   onReady?: (url: string, isRemote: boolean, port: number) => void;
 }
@@ -93,6 +98,9 @@ const RETRY_DELAY_MS = 500;
 export async function startAnnotateServer(
   options: AnnotateServerOptions
 ): Promise<AnnotateServerResult> {
+  // Side-channel pre-warm so /api/doc/exists POSTs land on warm cache.
+  void warmFileListCache(process.cwd(), "code");
+
   const {
     markdown,
     filePath,
@@ -106,6 +114,8 @@ export async function startAnnotateServer(
     shareBaseUrl,
     pasteApiUrl,
     gate = false,
+    rawHtml,
+    renderHtml = false,
     onReady,
   } = options;
 
@@ -116,7 +126,7 @@ export async function startAnnotateServer(
   const draftSource =
     mode === "annotate-folder" && folderPath
       ? `folder:${resolvePath(folderPath)}`
-      : markdown;
+      : renderHtml && rawHtml ? rawHtml : markdown;
   const draftKey = contentHash(draftSource);
   const externalAnnotations = createExternalAnnotationHandler("plan");
 
@@ -161,6 +171,8 @@ export async function startAnnotateServer(
               sourceInfo,
               sourceConverted: sourceConverted ?? false,
               gate,
+              renderAs: renderHtml && rawHtml ? 'html' as const : 'markdown' as const,
+              ...(renderHtml && rawHtml ? { rawHtml } : {}),
               sharingEnabled,
               shareBaseUrl,
               pasteApiUrl,
@@ -203,6 +215,11 @@ export async function startAnnotateServer(
               return handleDoc(new Request(docUrl.toString()));
             }
             return handleDoc(req);
+          }
+
+          // API: Batch existence check for code-file paths the renderer detected
+          if (url.pathname === "/api/doc/exists" && req.method === "POST") {
+            return handleDocExists(req);
           }
 
           // API: Detect Obsidian vaults

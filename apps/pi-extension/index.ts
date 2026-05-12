@@ -36,6 +36,8 @@ import { FILE_BROWSER_EXCLUDED } from "./generated/reference-common.js";
 import { htmlToMarkdown } from "./generated/html-to-markdown.js";
 import { urlToMarkdown, isConvertedSource } from "./generated/url-to-markdown.js";
 import { loadConfig, resolveUseJina } from "./generated/config.js";
+import { readImprovementHook } from "./generated/improvement-hooks.js";
+import { composeImproveContext } from "./generated/pfm-reminder.js";
 import {
 	getReviewApprovedPrompt,
 	getReviewDeniedSuffix,
@@ -49,6 +51,7 @@ import {
 	getAnnotateMessageFeedbackPrompt,
 } from "./generated/prompts.js";
 import { parseAnnotateArgs } from "./generated/annotate-args.js";
+import { parseReviewArgs } from "./generated/review-args.js";
 import { resolveAtReference } from "./generated/at-reference.js";
 import {
 	hasPlanBrowserHtml,
@@ -212,6 +215,7 @@ export default function plannotator(pi: ExtensionAPI): void {
 	let checklistItems: ChecklistItem[] = [];
 	let savedState: SavedPhaseState | null = null;
 	let plannotatorConfig = {};
+	let justApprovedPlan = false;
 
 	pi.on("session_start", (_event, ctx) => {
 		currentPiSession.update(ctx);
@@ -349,7 +353,7 @@ export default function plannotator(pi: ExtensionAPI): void {
 		await applyPhaseConfig(ctx, { restoreSavedState: false });
 		persistState();
 		ctx.ui.notify(
-			"Plannotator: planning mode enabled. Write a markdown plan, then submit it for review.",
+			"Plannotator: planning mode enabled.",
 		);
 		const warning = getPlanReviewAvailabilityWarning({ hasUI: ctx.hasUI, hasPlanHtml: hasPlanBrowserHtml() });
 		if (warning) {
@@ -403,7 +407,7 @@ export default function plannotator(pi: ExtensionAPI): void {
 	});
 
 	pi.registerCommand("plannotator-review", {
-		description: "Open interactive code review for current changes or a PR URL",
+		description: "Open interactive code review for current changes or a PR URL; pass --git to force Git in JJ workspaces",
 		handler: async (args, ctx) => {
 			if (!hasReviewBrowserHtml()) {
 				ctx.ui.notify(
@@ -417,9 +421,13 @@ export default function plannotator(pi: ExtensionAPI): void {
 			const origin = getPiSessionIdentity(ctx);
 
 			try {
-				const prUrl = args?.trim() || undefined;
-				const isPRReview = prUrl?.startsWith("http://") || prUrl?.startsWith("https://");
-				const session = await startCodeReviewBrowserSession(ctx, { prUrl });
+				const reviewArgs = parseReviewArgs(args ?? "");
+				const isPRReview = reviewArgs.prUrl !== undefined;
+				const session = await startCodeReviewBrowserSession(ctx, {
+					prUrl: reviewArgs.prUrl,
+					vcsType: reviewArgs.vcsType,
+					useLocal: reviewArgs.useLocal,
+				});
 				ctx.ui.notify("Code review opened. You can keep chatting while it runs.", "info");
 				void session
 					.waitForDecision()
@@ -485,7 +493,7 @@ export default function plannotator(pi: ExtensionAPI): void {
 			// accepted (Pi writes back via sendUserMessage, not stdout).
 			// `rawFilePath` keeps any leading `@` for the literal-@ fallback
 			// (scoped-package-style names).
-			const { filePath, rawFilePath, gate } = parseAnnotateArgs(args ?? "");
+			const { filePath, rawFilePath, gate, renderHtml: renderHtmlFlag } = parseAnnotateArgs(args ?? "");
 			if (!filePath) {
 				ctx.ui.notify("Usage: /plannotator-annotate <file.md | file.html | https://... | folder/> [--gate] [--json]", "error");
 				return;
@@ -499,6 +507,7 @@ export default function plannotator(pi: ExtensionAPI): void {
 			}
 
 			let markdown: string;
+			let rawHtml: string | undefined;
 			let absolutePath: string;
 			let folderPath: string | undefined;
 			let mode: "annotate" | "annotate-folder" | undefined;
@@ -562,9 +571,14 @@ export default function plannotator(pi: ExtensionAPI): void {
 						return;
 					}
 					const html = readFileSync(absolutePath, "utf-8");
-					markdown = htmlToMarkdown(html);
+					if (renderHtmlFlag) {
+						rawHtml = html;
+						markdown = "";
+					} else {
+						markdown = htmlToMarkdown(html);
+						sourceConverted = true;
+					}
 					sourceInfo = basename(absolutePath);
-					sourceConverted = true;
 					ctx.ui.notify(`Opening annotation UI for ${filePath}...`, "info");
 				} else {
 					markdown = readFileSync(absolutePath, "utf-8");
@@ -585,6 +599,8 @@ export default function plannotator(pi: ExtensionAPI): void {
 					sourceInfo,
 					sourceConverted,
 					gate,
+					rawHtml,
+					renderHtmlFlag,
 				);
 				ctx.ui.notify("Annotation opened. You can keep chatting while it runs.", "info");
 				void session
@@ -853,6 +869,7 @@ export default function plannotator(pi: ExtensionAPI): void {
 				await applyPhaseConfig(ctx, { restoreSavedState: true });
 				pi.appendEntry("plannotator-execute", { lastSubmittedPath });
 				persistState();
+				justApprovedPlan = true;
 				return {
 					content: [
 						{
@@ -861,6 +878,7 @@ export default function plannotator(pi: ExtensionAPI): void {
 						},
 					],
 					details: { approved: true },
+					terminate: true,
 				};
 			}
 
@@ -881,6 +899,7 @@ export default function plannotator(pi: ExtensionAPI): void {
 				await applyPhaseConfig(ctx, { restoreSavedState: true });
 				pi.appendEntry("plannotator-execute", { lastSubmittedPath });
 				persistState();
+				justApprovedPlan = true;
 
 				const doneMsg =
 					checklistItems.length > 0
@@ -900,6 +919,7 @@ export default function plannotator(pi: ExtensionAPI): void {
 							},
 						],
 						details: { approved: true, feedback: result.feedback },
+						terminate: true,
 					};
 				}
 
@@ -914,6 +934,7 @@ export default function plannotator(pi: ExtensionAPI): void {
 						},
 					],
 					details: { approved: true },
+					terminate: true,
 				};
 			}
 
@@ -970,6 +991,17 @@ export default function plannotator(pi: ExtensionAPI): void {
 		}
 
 		const todoStats = phase === "executing" ? formatTodoList(checklistItems) : formatTodoList([]);
+
+		let improveContext: string | null = null;
+		if (phase === "planning") {
+			const hook = readImprovementHook("enterplanmode-improve");
+			const pfmEnabled = loadConfig().pfmReminder === true;
+			improveContext = composeImproveContext({
+				pfmEnabled,
+				improvementHookContent: hook?.content ?? null,
+			});
+		}
+
 		if (profile?.systemPrompt) {
 			const rendered = renderTemplate(
 				profile.systemPrompt,
@@ -989,7 +1021,7 @@ export default function plannotator(pi: ExtensionAPI): void {
 				);
 			}
 
-			return { systemPrompt: rendered.text };
+			return { systemPrompt: rendered.text + (improveContext ? "\n\n" + improveContext : "") };
 		}
 
 		if (phase === "planning") {
@@ -1061,7 +1093,7 @@ Your turn should only end by either:
 - Asking the user a question to gather more information.
 - Calling ${PLAN_SUBMIT_TOOL} when the plan is ready for review.
 
-Do not end your turn without doing one of these two things.`,
+Do not end your turn without doing one of these two things.` + (improveContext ? "\n\n---\n\n" + improveContext : ""),
 					display: false,
 				},
 			};
@@ -1131,6 +1163,14 @@ Execute each step in order. After completing a step, include [DONE:n] in your re
 
 	// Detect execution completion
 	pi.on("agent_end", async (_event, ctx) => {
+		if (phase === "executing" && justApprovedPlan) {
+			justApprovedPlan = false;
+			setTimeout(() => {
+				pi.sendUserMessage("Continue with the approved plan.");
+			}, 0);
+			return;
+		}
+
 		if (phase !== "executing" || checklistItems.length === 0) return;
 
 		if (checklistItems.every((t) => t.completed)) {

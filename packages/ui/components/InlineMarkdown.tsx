@@ -1,7 +1,245 @@
-import React from "react";
-import { isCodeFilePath, isCodeFilePathStrict } from "@plannotator/shared/code-file";
+import React, { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
+import hljs from "highlight.js";
+import { isCodeFilePath, isCodeFilePathStrict, CODE_PATH_BARE_REGEX, parseCodePath } from "@plannotator/shared/code-file";
 import { transformPlainText } from "../utils/inlineTransforms";
 import { getImageSrc } from "./ImageThumbnail";
+import { useCodePathValidation, type CodePathValidationContextValue } from "./CodePathValidationContext";
+import type { ValidationEntry } from "../hooks/useValidatedCodePaths";
+import { CodeFilePicker } from "./CodeFilePicker";
+
+/**
+ * Decide how a candidate code-file path should render based on validation state:
+ *   - 'link'           → clickable, opens directly via onOpenCodeFile(resolvedOrInput)
+ *   - 'ambiguous-link' → clickable, opens a picker over `matches`
+ *   - 'plain'          → not a link (file does not exist anywhere in the repo)
+ *
+ * No provider or `ready: false` falls back to optimistic 'link' behavior.
+ */
+function gateCodePath(
+  candidate: string,
+  validation: CodePathValidationContextValue | null,
+): { render: 'link'; resolved?: string } | { render: 'ambiguous-link'; matches: string[] } | { render: 'plain' } {
+  if (!validation || !validation.ready) return { render: 'link' };
+  const entry = validation.validated.get(candidate);
+  // If the validator is ready but has no entry for this candidate, the
+  // extractor intentionally excluded it (e.g., inside an HTML comment or
+  // fenced code block). Demote rather than optimistically linking.
+  if (!entry) return { render: 'plain' };
+  switch ((entry as ValidationEntry).status) {
+    case 'found':       return { render: 'link', resolved: (entry as Extract<ValidationEntry, { status: 'found' }>).resolved };
+    case 'ambiguous':   return { render: 'ambiguous-link', matches: (entry as Extract<ValidationEntry, { status: 'ambiguous' }>).matches };
+    case 'unavailable': return { render: 'link' };
+    case 'missing':     return { render: 'plain' };
+    default:            return { render: 'link' }; // unknown status — degrade to optimistic
+  }
+}
+
+function extToLanguage(filepath: string): string | undefined {
+  const ext = filepath.split('.').pop()?.toLowerCase();
+  const map: Record<string, string> = {
+    ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript',
+    py: 'python', rb: 'ruby', rs: 'rust', go: 'go', java: 'java',
+    css: 'css', scss: 'scss', json: 'json', yml: 'yaml', yaml: 'yaml',
+    sql: 'sql', sh: 'bash', bash: 'bash', zsh: 'bash', md: 'markdown',
+    html: 'html', xml: 'xml', toml: 'toml', swift: 'swift', kt: 'kotlin',
+  };
+  return ext ? map[ext] : undefined;
+}
+
+const CodeSnippetPreview: React.FC<{
+  anchorEl: HTMLElement | null;
+  contents: string;
+  filepath: string;
+  line: number;
+  lineEnd?: number;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
+}> = ({ anchorEl, contents, filepath, line, lineEnd, onMouseEnter, onMouseLeave }) => {
+  const allLines = contents.split('\n');
+  const start = Math.max(0, line - 1);
+  const end = Math.min(allLines.length, (lineEnd ?? line));
+  const snippet = allLines.slice(start, end).join('\n');
+
+  const highlightedLines = useMemo(() => {
+    const lang = extToLanguage(filepath);
+    const lines = snippet.split('\n');
+    return lines.map(line => {
+      try {
+        if (lang) return hljs.highlight(line, { language: lang }).value;
+        return hljs.highlightAuto(line).value;
+      } catch {
+        return line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      }
+    });
+  }, [snippet, filepath]);
+
+  if (!anchorEl) return null;
+
+  const rect = anchorEl.getBoundingClientRect();
+  const spaceBelow = window.innerHeight - rect.bottom;
+  const showAbove = spaceBelow < 200 && rect.top > spaceBelow;
+  const top = showAbove ? undefined : rect.bottom + 4;
+  const bottom = showAbove ? window.innerHeight - rect.top + 4 : undefined;
+  const left = Math.max(8, Math.min(rect.left, window.innerWidth - 520));
+
+  return createPortal(
+    <div
+      className="fixed z-[9999] rounded-lg border border-border bg-card shadow-xl flex flex-col"
+      style={{ top, bottom, left, maxWidth: 'min(600px, 90vw)', maxHeight: '300px' }}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+    >
+      <div className="px-3 py-1.5 border-b border-border/50 text-[10px] text-muted-foreground font-mono flex items-center justify-between gap-4 flex-shrink-0">
+        <span>{filepath.split('/').pop()}</span>
+        <span className="opacity-60">{lineEnd && lineEnd !== line ? `lines ${line}–${lineEnd}` : `line ${line}`}</span>
+      </div>
+      <div className="hljs overflow-auto text-[12px] leading-5 min-h-0" style={{ padding: 0, background: 'var(--color-muted, #1e293b)' }}>
+        <table className="border-collapse w-full">
+          <tbody>
+            {snippet.split('\n').map((_, i) => (
+              <tr key={start + i} className="hover:bg-white/5">
+                <td className="select-none text-muted-foreground/40 text-right pr-3 pl-3 py-0 align-top font-mono w-8 whitespace-nowrap" style={{ userSelect: 'none' }}>{start + i + 1}</td>
+                <td
+                  className="font-mono pr-3 py-0 whitespace-pre"
+                  dangerouslySetInnerHTML={{ __html: highlightedLines[i] ?? '' }}
+                />
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>,
+    document.body,
+  );
+};
+
+const CodeFileLink: React.FC<{
+  candidate: string;
+  display: string;
+  onOpenCodeFile: (path: string) => void;
+  baseDir?: string;
+}> = ({ candidate, display, onOpenCodeFile, baseDir }) => {
+  const validation = useCodePathValidation();
+  const gate = gateCodePath(candidate, validation);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [hoverPreview, setHoverPreview] = useState<{ contents: string; filepath: string } | null>(null);
+  const hoverPreviewRef = useRef(hoverPreview);
+  hoverPreviewRef.current = hoverPreview;
+  const anchorRef = useRef<HTMLElement | null>(null);
+  const showTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const parsed = parseCodePath(candidate);
+  const hasLineRef = parsed.line != null;
+
+  const cancelHide = useCallback(() => {
+    if (hideTimerRef.current) { clearTimeout(hideTimerRef.current); hideTimerRef.current = null; }
+  }, []);
+
+  const scheduleHide = useCallback(() => {
+    cancelHide();
+    hideTimerRef.current = setTimeout(() => {
+      setHoverPreview(null);
+    }, 200);
+  }, [cancelHide]);
+
+  const handleMouseEnter = useCallback(() => {
+    if (!hasLineRef || gate.render === 'plain') return;
+    cancelHide();
+    if (hoverPreviewRef.current) return;
+    showTimerRef.current = setTimeout(async () => {
+      try {
+        const params = new URLSearchParams({ path: candidate });
+        if (baseDir) params.set('base', baseDir);
+        const res = await fetch(`/api/doc?${params}`);
+        const data = await res.json();
+        if (data.contents) setHoverPreview({ contents: data.contents, filepath: data.filepath ?? candidate });
+      } catch {}
+    }, 150);
+  }, [candidate, hasLineRef, gate.render, cancelHide, baseDir]);
+
+  const handleMouseLeave = useCallback(() => {
+    if (showTimerRef.current) { clearTimeout(showTimerRef.current); showTimerRef.current = null; }
+    scheduleHide();
+  }, [scheduleHide]);
+
+  const handlePreviewEnter = useCallback(() => {
+    cancelHide();
+  }, [cancelHide]);
+
+  const handlePreviewLeave = useCallback(() => {
+    scheduleHide();
+  }, [scheduleHide]);
+
+  useEffect(() => {
+    return () => {
+      if (showTimerRef.current) clearTimeout(showTimerRef.current);
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    };
+  }, []);
+
+  if (gate.render === 'plain') {
+    return (
+      <code className="px-1.5 py-0.5 rounded bg-muted text-sm font-mono">
+        {display}
+      </code>
+    );
+  }
+
+  const isAmbiguous = gate.render === 'ambiguous-link';
+  const lineSuffix = parsed.line != null ? `:${parsed.line}${parsed.lineEnd != null ? `-${parsed.lineEnd}` : ''}` : '';
+  const handleClick = () => {
+    handleMouseLeave();
+    if (isAmbiguous) {
+      setPickerOpen(true);
+      return;
+    }
+    const resolvedPath = gate.render === 'link' && gate.resolved ? gate.resolved : candidate;
+    onOpenCodeFile(gate.render === 'link' && gate.resolved ? resolvedPath + lineSuffix : candidate);
+  };
+
+  return (
+    <>
+      <code
+        ref={(el) => { anchorRef.current = el; }}
+        role="button"
+        tabIndex={0}
+        data-ambiguous={isAmbiguous ? "true" : undefined}
+        onClick={handleClick}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleClick(); } }}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+        className="code-file-link px-1.5 py-0.5 rounded bg-muted text-sm font-mono cursor-pointer hover:text-primary inline-flex items-center gap-1 transition-colors"
+        title={isAmbiguous ? `${display} — multiple matches` : `View: ${display}`}
+      >
+        {display}
+        <CodeFileIcon />
+        {isAmbiguous && (
+          <sup className="text-[0.6rem] opacity-70 -ml-0.5">{(gate as { matches: string[] }).matches.length}</sup>
+        )}
+      </code>
+      {hoverPreview && hasLineRef && (
+        <CodeSnippetPreview
+          anchorEl={anchorRef.current}
+          contents={hoverPreview.contents}
+          filepath={hoverPreview.filepath}
+          line={parsed.line!}
+          lineEnd={parsed.lineEnd}
+          onMouseEnter={handlePreviewEnter}
+          onMouseLeave={handlePreviewLeave}
+        />
+      )}
+      {pickerOpen && isAmbiguous && (
+        <CodeFilePicker
+          anchorEl={anchorRef.current}
+          matches={(gate as { matches: string[] }).matches}
+          onPick={(path) => { setPickerOpen(false); onOpenCodeFile(path + lineSuffix); }}
+          onDismiss={() => setPickerOpen(false)}
+        />
+      )}
+    </>
+  );
+};
 
 const DANGEROUS_PROTOCOL = /^\s*(javascript|data|vbscript|file)\s*:/i;
 function sanitizeLinkUrl(url: string): string | null {
@@ -54,6 +292,8 @@ function emitPlainTextWithBareUrls(
   parts: React.ReactNode[],
   nextKey: () => number,
   onOpenCodeFile?: (path: string) => void,
+  validation?: CodePathValidationContextValue | null,
+  baseDir?: string,
 ): void {
   if (text.length === 0) return;
 
@@ -76,7 +316,7 @@ function emitPlainTextWithBareUrls(
 
   // Collect bare code file paths (require /)
   if (onOpenCodeFile) {
-    const pathRe = /(?:\.{0,2}\/)?(?:[a-zA-Z0-9_@.\-]+\/)+[a-zA-Z0-9_.\-]+\.[a-zA-Z0-9]+/g;
+    const pathRe = new RegExp(CODE_PATH_BARE_REGEX.source, 'g');
     while ((m = pathRe.exec(text)) !== null) {
       const before = m.index === 0 ? previousChar : text[m.index - 1];
       if (/\w/.test(before)) continue;
@@ -114,20 +354,21 @@ function emitPlainTextWithBareUrls(
       );
     } else {
       const cleanPath = span.value.replace(/#.*$/, '');
-      parts.push(
-        <code
-          key={nextKey()}
-          role="button"
-          tabIndex={0}
-          onClick={() => onOpenCodeFile!(cleanPath)}
-          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenCodeFile!(cleanPath); } }}
-          className="code-file-link px-1.5 py-0.5 rounded bg-muted text-sm font-mono cursor-pointer hover:text-primary inline-flex items-center gap-1 transition-colors"
-          title={`View: ${span.value}`}
-        >
-          {span.value}
-          <CodeFileIcon />
-        </code>,
-      );
+      const gate = gateCodePath(cleanPath, validation ?? null);
+      if (gate.render === 'plain') {
+        // Bare prose, file doesn't exist — emit as plain text, no link styling.
+        parts.push(transformPlainText(span.value));
+      } else {
+        parts.push(
+          <CodeFileLink
+            key={nextKey()}
+            candidate={cleanPath}
+            display={span.value}
+            onOpenCodeFile={onOpenCodeFile!}
+            baseDir={baseDir}
+          />,
+        );
+      }
     }
     last = span.end;
   }
@@ -154,14 +395,26 @@ export const InlineMarkdown: React.FC<{
   githubRepo?: string;
   localDocLinksEnabled?: boolean;
 }> = ({ text, onOpenLinkedDoc, onOpenCodeFile, onNavigateAnchor, imageBaseDir, onImageClick, githubRepo, localDocLinksEnabled = true }) => {
+  const validation = useCodePathValidation();
   const parts: React.ReactNode[] = [];
   let remaining = text;
   let key = 0;
   let previousChar = "";
 
   while (remaining.length > 0) {
+    // HTML comments: skip entirely — they should be invisible per CommonMark.
+    // The parser doesn't recognize <!-- --> as a block-level construct, so
+    // comments inside paragraphs land here. Without this, path detection
+    // would linkify paths inside comments.
+    let match = remaining.match(/^<!--[\s\S]*?-->/);
+    if (match) {
+      remaining = remaining.slice(match[0].length);
+      previousChar = ">";
+      continue;
+    }
+
     // Backslash escaping: \. \* \_ \` \[ \~ etc. — emit literal char, hide backslash
-    let match = remaining.match(/^\\([\\*_`\[\]~!.()\-#>+|{}&])/);
+    match = remaining.match(/^\\([\\*_`\[\]~!.()\-#>+|{}&])/);
     if (match) {
       parts.push(match[1]);
       remaining = remaining.slice(2);
@@ -354,18 +607,13 @@ export const InlineMarkdown: React.FC<{
       if (isCodeFilePath(codeContent) && onOpenCodeFile) {
         const cleanPath = codeContent.replace(/#.*$/, '');
         parts.push(
-          <code
+          <CodeFileLink
             key={key++}
-            role="button"
-            tabIndex={0}
-            onClick={() => onOpenCodeFile(cleanPath)}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenCodeFile(cleanPath); } }}
-            className="code-file-link px-1.5 py-0.5 rounded bg-muted text-sm font-mono cursor-pointer hover:text-primary inline-flex items-center gap-1 transition-colors"
-            title={`View: ${codeContent}`}
-          >
-            {codeContent}
-            <CodeFileIcon />
-          </code>,
+            candidate={cleanPath}
+            display={codeContent}
+            onOpenCodeFile={onOpenCodeFile}
+            baseDir={imageBaseDir}
+          />,
         );
       } else {
         parts.push(
@@ -733,7 +981,7 @@ export const InlineMarkdown: React.FC<{
     // detected inline via emitPlainTextWithBareUrls() below.
     const nextSpecial = remaining.slice(1).search(/[\*_`\[!~\\<#@]/);
     const plainText = nextSpecial === -1 ? remaining : remaining.slice(0, nextSpecial + 1);
-    emitPlainTextWithBareUrls(plainText, previousChar, parts, () => key++, onOpenCodeFile);
+    emitPlainTextWithBareUrls(plainText, previousChar, parts, () => key++, onOpenCodeFile, validation, imageBaseDir);
     previousChar = plainText[plainText.length - 1] || previousChar;
     if (nextSpecial === -1) {
       break;
