@@ -13,7 +13,7 @@ import { GitHubIcon } from '@plannotator/ui/components/GitHubIcon';
 import { GitLabIcon } from '@plannotator/ui/components/GitLabIcon';
 import { RepoIcon } from '@plannotator/ui/components/RepoIcon';
 import { PullRequestIcon } from '@plannotator/ui/components/PullRequestIcon';
-import { getPlatformLabel, getMRLabel, getMRNumberLabel, getDisplayRepo } from '@plannotator/shared/pr-provider';
+import { getPlatformLabel, getMRLabel, getMRNumberLabel, getDisplayRepo } from '@plannotator/shared/pr-types';
 import { configStore, useConfigValue } from '@plannotator/ui/config';
 import { loadDiffFont } from '@plannotator/ui/utils/diffFonts';
 import { getAgentSwitchSettings, getEffectiveAgentName } from '@plannotator/ui/utils/agentSwitch';
@@ -70,7 +70,7 @@ import {
 } from './dock/reviewPanelTypes';
 import type { DiffFile } from './types';
 import type { DiffOption, WorktreeInfo, GitContext } from '@plannotator/shared/types';
-import type { PRMetadata } from '@plannotator/shared/pr-provider';
+import type { PRMetadata } from '@plannotator/shared/pr-types';
 import type { PRDiffScope, PRDiffScopeOption, PRStackInfo, PRStackTree } from '@plannotator/shared/pr-stack';
 import { altKey } from '@plannotator/ui/utils/platform';
 import { TourDialog } from './components/tour/TourDialog';
@@ -1167,6 +1167,8 @@ const ReviewApp: React.FC = () => {
               diffOptions: data.gitContext!.diffOptions,
               compareTarget: data.gitContext!.compareTarget,
               jjEvologs: data.gitContext!.jjEvologs,
+              // HEAD differs per worktree, so refresh the commit-baseline picker.
+              recentCommits: data.gitContext!.recentCommits,
             };
           });
         }
@@ -2094,6 +2096,7 @@ const ReviewApp: React.FC = () => {
                 detectedBase={prMetadata ? undefined : gitContext?.defaultBranch || gitContext?.compareTarget?.fallback}
                 onSelectBase={prMetadata ? undefined : handleBaseSelect}
                 compareTarget={gitContext?.compareTarget}
+                recentCommits={prMetadata ? undefined : gitContext?.recentCommits}
                 jjEvologs={prMetadata ? undefined : gitContext?.jjEvologs}
                 detectedEvoBase={prMetadata ? undefined : gitContext?.jjEvologs?.[1]?.commitId}
                 stagedFiles={stagedFiles}
