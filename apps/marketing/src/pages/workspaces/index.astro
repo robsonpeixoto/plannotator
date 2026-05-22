@@ -25,6 +25,15 @@ const teamSizes = [
   title="Plannotator Workspaces · Get notified"
   description="Plannotator Workspaces is the hosted team layer for collaborating on agent plans, specs, code reviews, and verification standards. Plannotator core stays free and open source."
 >
+  <Fragment slot="head">
+    <!-- Force light mode on this page only. The Base.astro cookie-reader
+         only ADDS the `.light` class (never removes), so this `add` runs
+         before paint and any saved-dark setting won't undo it. -->
+    <script is:inline>
+      document.documentElement.classList.add('light');
+    </script>
+  </Fragment>
+
   <div class="min-h-screen bg-background text-foreground">
     <Nav />
 
