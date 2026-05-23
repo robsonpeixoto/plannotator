@@ -200,19 +200,6 @@ const teamSizes = [
               <span class="ws-accent">lifetime free access</span> to Workspaces.
             </p>
 
-            {turnstileSitekey && (
-              <div
-                id="ws-turnstile"
-                class="cf-turnstile ws-turnstile"
-                data-sitekey={turnstileSitekey}
-                data-callback="onWsTurnstile"
-                data-expired-callback="onWsTurnstileExpired"
-                data-error-callback="onWsTurnstileError"
-                data-theme="auto"
-                data-retry="auto"
-              />
-            )}
-
             <div class="ws-form-foot">
               <button type="submit" class="ws-submit">
                 <span class="ws-submit-idle">
@@ -227,6 +214,19 @@ const teamSizes = [
                 </span>
               </button>
             </div>
+
+            {turnstileSitekey && (
+              <div
+                id="ws-turnstile"
+                class="cf-turnstile ws-turnstile"
+                data-sitekey={turnstileSitekey}
+                data-callback="onWsTurnstile"
+                data-expired-callback="onWsTurnstileExpired"
+                data-error-callback="onWsTurnstileError"
+                data-theme="auto"
+                data-retry="auto"
+              />
+            )}
           </div>
 
           <div class="ws-success">
