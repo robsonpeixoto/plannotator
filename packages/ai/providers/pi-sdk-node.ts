@@ -21,6 +21,7 @@ import type {
 import { registerProviderFactory } from "../provider.ts";
 import {
 	buildWindowsCommandScriptSpawnCommand,
+	killWindowsProcessTree,
 	resolveWindowsCommandShim,
 } from "./command-path.ts";
 
@@ -107,7 +108,7 @@ class PiProcessNode {
 		}
 		this.pendingRequests.clear();
 		for (const listener of this.listeners) {
-			listener({ type: "process_exited", error: error.message });
+			listener({ type: "process_exited" });
 		}
 	}
 
@@ -180,9 +181,12 @@ class PiProcessNode {
 
 	kill(): void {
 		this._alive = false;
-		if (this.proc) {
-			this.proc.kill();
-			this.proc = null;
+		const proc = this.proc;
+		this.proc = null;
+		if (proc) {
+			if (!killWindowsProcessTree(proc.pid)) {
+				proc.kill();
+			}
 		}
 		this.listeners.length = 0;
 		for (const [, pending] of this.pendingRequests) {

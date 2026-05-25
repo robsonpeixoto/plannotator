@@ -12,23 +12,18 @@ function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function removeTempDirBestEffort(path: string): Promise<void> {
-	for (let attempt = 0; attempt < 8; attempt++) {
+async function removeTempDirWithRetry(path: string): Promise<void> {
+	let lastError: unknown;
+	for (let attempt = 0; attempt < 20; attempt++) {
 		try {
 			rmSync(path, { recursive: true, force: true });
 			return;
 		} catch (error) {
-			if (attempt === 7) {
-				console.warn(
-					`Warning: failed to remove smoke temp dir ${path}: ${
-						error instanceof Error ? error.message : String(error)
-					}`,
-				);
-				return;
-			}
+			lastError = error;
 			await sleep(250);
 		}
 	}
+	throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
 async function main(): Promise<void> {
@@ -74,8 +69,10 @@ node "%~dp0pi-rpc.cjs" %*
 const fs = require("node:fs");
 const readline = require("node:readline");
 const marker = require("node:path").join(__dirname, "spawned.txt");
+const lock = fs.openSync(require("node:path").join(__dirname, "child.lock"), "w");
 
 fs.writeFileSync(marker, process.argv.slice(2).join(" "), "utf8");
+fs.writeSync(lock, String(process.pid));
 
 if (process.argv[2] !== "--mode" || process.argv[3] !== "rpc") {
   console.error("unexpected args:", process.argv.slice(2).join(" "));
@@ -96,7 +93,7 @@ rl.on("line", (line) => {
           { provider: "fake", id: "windows-smoke", name: "Windows smoke" }
         ]
       }
-    }) + "\\n", () => process.exit(0));
+    }) + "\\n");
     return;
   }
   process.stdout.write(JSON.stringify({
@@ -106,6 +103,8 @@ rl.on("line", (line) => {
     data: {}
   }) + "\\n");
 });
+
+setInterval(() => {}, 1000);
 `,
 			"utf-8",
 		);
@@ -153,7 +152,7 @@ rl.on("line", (line) => {
 		}
 	} finally {
 		process.env[pathEnvKey] = originalPath;
-		await removeTempDirBestEffort(tempDir);
+		await removeTempDirWithRetry(tempDir);
 	}
 }
 

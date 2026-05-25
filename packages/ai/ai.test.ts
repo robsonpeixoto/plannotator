@@ -15,6 +15,7 @@ import type {
 } from "./types.ts";
 import {
   buildWindowsCommandScriptSpawnCommand,
+  killWindowsProcessTree,
   resolveCommandFromWhichOutput,
   resolveWindowsCommandShim,
   shouldSpawnViaShell,
@@ -146,6 +147,38 @@ describe("command path helpers", () => {
         "win32",
       ),
     ).toBeNull();
+  });
+
+  test("killWindowsProcessTree invokes taskkill with tree flags on Windows", () => {
+    const calls: Array<{
+      command: string;
+      args: string[];
+      options: { stdio: "ignore"; windowsHide: boolean };
+    }> = [];
+    const killed = killWindowsProcessTree(1234, "win32", (command, args, options) => {
+      calls.push({ command, args, options });
+      return { status: 0 };
+    });
+
+    expect(killed).toBe(true);
+    expect(calls).toEqual([
+      {
+        command: "taskkill",
+        args: ["/pid", "1234", "/t", "/f"],
+        options: { stdio: "ignore", windowsHide: true },
+      },
+    ]);
+  });
+
+  test("killWindowsProcessTree skips non-Windows platforms", () => {
+    let called = false;
+    const killed = killWindowsProcessTree(1234, "darwin", () => {
+      called = true;
+      return { status: 0 };
+    });
+
+    expect(killed).toBe(false);
+    expect(called).toBe(false);
   });
 });
 
