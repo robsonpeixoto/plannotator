@@ -13,6 +13,12 @@ import type {
   AIMessage,
   AIContext,
 } from "./types.ts";
+import {
+  buildWindowsCommandScriptSpawnCommand,
+  resolveCommandFromWhichOutput,
+  resolveWindowsCommandShim,
+  shouldSpawnViaShell,
+} from "./providers/command-path.ts";
 
 // ---------------------------------------------------------------------------
 // Helpers — mock provider/session for testing
@@ -70,6 +76,78 @@ function mockProvider(name = "mock"): AIProvider {
     dispose() {},
   };
 }
+
+// ---------------------------------------------------------------------------
+// Command path helpers
+// ---------------------------------------------------------------------------
+
+describe("command path helpers", () => {
+  test("resolveWindowsCommandShim prefers a sibling .cmd for npm shims", () => {
+    const raw = String.raw`C:\Users\Andrew\AppData\Roaming\npm\pi`;
+    const resolved = resolveWindowsCommandShim(
+      raw,
+      "win32",
+      (path) => path === `${raw}.cmd`,
+    );
+
+    expect(resolved).toBe(`${raw}.cmd`);
+  });
+
+  test("resolveCommandFromWhichOutput skips extensionless Windows shims", () => {
+    const raw = String.raw`C:\Users\Andrew\AppData\Roaming\npm\pi`;
+    const resolved = resolveCommandFromWhichOutput(
+      `${raw}\r\n${raw}.cmd\r\n`,
+      "win32",
+      () => false,
+    );
+
+    expect(resolved).toBe(`${raw}.cmd`);
+  });
+
+  test("resolveCommandFromWhichOutput preserves the first non-Windows result", () => {
+    expect(
+      resolveCommandFromWhichOutput("/usr/local/bin/pi\n/usr/bin/pi\n", "darwin"),
+    ).toBe("/usr/local/bin/pi");
+  });
+
+  test("shouldSpawnViaShell only flags Windows command scripts", () => {
+    expect(
+      shouldSpawnViaShell(
+        String.raw`C:\Users\Andrew\AppData\Roaming\npm\pi.cmd`,
+        "win32",
+      ),
+    ).toBe(true);
+    expect(shouldSpawnViaShell(String.raw`C:\tools\pi.exe`, "win32")).toBe(false);
+    expect(shouldSpawnViaShell("/usr/local/bin/pi.cmd", "darwin")).toBe(false);
+  });
+
+  test("buildWindowsCommandScriptSpawnCommand wraps command scripts for Bun.spawn", () => {
+    const command = buildWindowsCommandScriptSpawnCommand(
+      String.raw`C:\Users\Andrew Ramos\AppData\Roaming\npm\pi.cmd`,
+      ["--mode", "rpc"],
+      "win32",
+      String.raw`C:\Windows\System32\cmd.exe`,
+    );
+
+    expect(command).toEqual([
+      String.raw`C:\Windows\System32\cmd.exe`,
+      "/d",
+      "/s",
+      "/c",
+      String.raw`"C:\Users\Andrew Ramos\AppData\Roaming\npm\pi.cmd" --mode rpc`,
+    ]);
+  });
+
+  test("buildWindowsCommandScriptSpawnCommand ignores native executables", () => {
+    expect(
+      buildWindowsCommandScriptSpawnCommand(
+        String.raw`C:\tools\pi.exe`,
+        ["--mode", "rpc"],
+        "win32",
+      ),
+    ).toBeNull();
+  });
+});
 
 // ---------------------------------------------------------------------------
 // SessionManager

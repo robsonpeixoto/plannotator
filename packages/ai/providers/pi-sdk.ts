@@ -16,6 +16,10 @@ import type {
 	CreateSessionOptions,
 	PiSDKConfig,
 } from "../types.ts";
+import {
+	buildWindowsCommandScriptSpawnCommand,
+	resolveWindowsCommandShim,
+} from "./command-path.ts";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -44,7 +48,14 @@ class PiProcess {
 	private _alive = false;
 
 	async spawn(piPath: string, cwd: string): Promise<void> {
-		this.proc = Bun.spawn([piPath, "--mode", "rpc"], {
+		const commandPath = resolveWindowsCommandShim(piPath);
+		const command =
+			buildWindowsCommandScriptSpawnCommand(commandPath, ["--mode", "rpc"]) ?? [
+				commandPath,
+				"--mode",
+				"rpc",
+			];
+		this.proc = Bun.spawn(command, {
 			cwd,
 			stdin: "pipe",
 			stdout: "pipe",
