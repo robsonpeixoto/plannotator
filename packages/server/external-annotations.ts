@@ -2,8 +2,7 @@
  * External Annotations — Bun server handler.
  *
  * Thin HTTP adapter over the shared annotation store. Handles routing,
- * request parsing, and SSE broadcasting using Bun's Request/Response +
- * ReadableStream APIs.
+ * request parsing, and daemon event publication.
  *
  * The Pi extension has a mirror handler using node:http primitives at
  * apps/pi-extension/server/external-annotations.ts.
@@ -13,13 +12,11 @@ import {
   createAnnotationStore,
   transformPlanInput,
   transformReviewInput,
-  serializeSSEEvent,
-  HEARTBEAT_COMMENT,
-  HEARTBEAT_INTERVAL_MS,
   type AnnotationStore,
   type StorableAnnotation,
   type ExternalAnnotationEvent,
 } from "@plannotator/shared/external-annotation";
+import type { SessionSnapshotProvider } from "./session-handler";
 
 export type { ExternalAnnotationEvent } from "@plannotator/shared/external-annotation";
 
@@ -35,6 +32,14 @@ export interface ExternalAnnotationHandler {
   ) => Promise<Response | null>;
   /** Push annotations directly into the store (bypasses HTTP, reuses same validation). */
   addAnnotations: (body: unknown) => { ids: string[] } | { error: string };
+  /** Remove all annotations from the store. */
+  clearAll: () => void;
+  dispose: () => void;
+}
+
+export interface ExternalAnnotationHandlerOptions {
+  publishEvent?: (event: ExternalAnnotationEvent<StorableAnnotation>) => void;
+  registerSnapshotProvider?: (provider: SessionSnapshotProvider) => (() => void) | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -43,6 +48,7 @@ export interface ExternalAnnotationHandler {
 
 const BASE = "/api/external-annotations";
 const STREAM = `${BASE}/stream`;
+const SSE_HEARTBEAT_INTERVAL_MS = 15_000;
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -50,23 +56,24 @@ const STREAM = `${BASE}/stream`;
 
 export function createExternalAnnotationHandler(
   mode: "plan" | "review",
+  options: ExternalAnnotationHandlerOptions = {},
 ): ExternalAnnotationHandler {
   const store: AnnotationStore<StorableAnnotation> = createAnnotationStore();
-  const subscribers = new Set<ReadableStreamDefaultController>();
-  const encoder = new TextEncoder();
   const transform = mode === "plan" ? transformPlanInput : transformReviewInput;
+  let disposed = false;
+  const unregisterSnapshotProvider = options.registerSnapshotProvider?.(() => ({
+    type: "snapshot",
+    annotations: store.getAll(),
+    version: store.version,
+  } satisfies ExternalAnnotationEvent<StorableAnnotation>));
+  const isDaemonBacked = typeof unregisterSnapshotProvider === "function";
+  const streamCleanups = new Set<() => void>();
 
-  // Wire store mutations → SSE broadcast
+  // Wire store mutations upward to the daemon hub. The handler owns only its
+  // store; connection routing and filtering live in the daemon layer.
   store.onMutation((event: ExternalAnnotationEvent<StorableAnnotation>) => {
-    const data = encoder.encode(serializeSSEEvent(event));
-    for (const controller of subscribers) {
-      try {
-        controller.enqueue(data);
-      } catch {
-        // Controller closed — clean up on next iteration
-        subscribers.delete(controller);
-      }
-    }
+    if (disposed) return;
+    options.publishEvent?.(event);
   });
 
   return {
@@ -80,45 +87,58 @@ export function createExternalAnnotationHandler(
     async handle(
       req: Request,
       url: URL,
-      options?: { disableIdleTimeout?: () => void },
+      handlerOptions?: { disableIdleTimeout?: () => void },
     ): Promise<Response | null> {
-      // --- SSE stream ---
+      // --- Legacy persistent stream route ---
       if (url.pathname === STREAM && req.method === "GET") {
-        options?.disableIdleTimeout?.();
-
-        let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
-        let ctrl: ReadableStreamDefaultController;
-
-        const stream = new ReadableStream({
+        if (isDaemonBacked) {
+          return Response.json({ error: "External annotation events moved to the daemon WebSocket hub." }, { status: 410 });
+        }
+        handlerOptions?.disableIdleTimeout?.();
+        const encoder = new TextEncoder();
+        let cleanup: (() => void) | undefined;
+        const stream = new ReadableStream<Uint8Array>({
           start(controller) {
-            ctrl = controller;
-
-            // Send current state as snapshot
-            const snapshot: ExternalAnnotationEvent<StorableAnnotation> = {
+            let closed = false;
+            let heartbeat: ReturnType<typeof setInterval> | undefined;
+            const enqueue = (chunk: string) => {
+              if (closed) return;
+              try {
+                controller.enqueue(encoder.encode(chunk));
+              } catch {
+                cleanup?.();
+              }
+            };
+            const send = (event: ExternalAnnotationEvent<StorableAnnotation>) => {
+              enqueue(`data: ${JSON.stringify(event)}\n\n`);
+            };
+            const unsubscribe = store.onMutation(send);
+            cleanup = () => {
+              if (closed) return;
+              closed = true;
+              if (heartbeat) clearInterval(heartbeat);
+              unsubscribe();
+              streamCleanups.delete(cleanup!);
+              try {
+                controller.close();
+              } catch {
+                // Stream may already be closed by the runtime.
+              }
+            };
+            streamCleanups.add(cleanup);
+            req.signal.addEventListener("abort", cleanup, { once: true });
+            heartbeat = setInterval(() => enqueue(": heartbeat\n\n"), SSE_HEARTBEAT_INTERVAL_MS);
+            heartbeat.unref?.();
+            send({
               type: "snapshot",
               annotations: store.getAll(),
-            };
-            controller.enqueue(encoder.encode(serializeSSEEvent(snapshot)));
-
-            subscribers.add(controller);
-
-            // Heartbeat to keep connection alive
-            heartbeatTimer = setInterval(() => {
-              try {
-                controller.enqueue(encoder.encode(HEARTBEAT_COMMENT));
-              } catch {
-                // Stream closed
-                if (heartbeatTimer) clearInterval(heartbeatTimer);
-                subscribers.delete(controller);
-              }
-            }, HEARTBEAT_INTERVAL_MS);
+              version: store.version,
+            });
           },
           cancel() {
-            if (heartbeatTimer) clearInterval(heartbeatTimer);
-            subscribers.delete(ctrl);
+            cleanup?.();
           },
         });
-
         return new Response(stream, {
           headers: {
             "Content-Type": "text/event-stream",
@@ -128,7 +148,7 @@ export function createExternalAnnotationHandler(
         });
       }
 
-      // --- GET snapshot (polling fallback) ---
+      // --- GET snapshot (reconnect resync) ---
       if (url.pathname === BASE && req.method === "GET") {
         const since = url.searchParams.get("since");
         if (since !== null) {
@@ -202,6 +222,16 @@ export function createExternalAnnotationHandler(
 
       // Not handled — pass through
       return null;
+    },
+
+    clearAll(): void {
+      store.clearAll();
+    },
+
+    dispose(): void {
+      disposed = true;
+      for (const cleanup of Array.from(streamCleanups)) cleanup();
+      unregisterSnapshotProvider?.();
     },
   };
 }

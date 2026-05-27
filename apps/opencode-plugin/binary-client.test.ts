@@ -135,7 +135,13 @@ describe("OpenCode binary client", () => {
   });
 
   test("uses the local source shim before auto-installing", () => {
-    const existing = new Set(["/repo/plannotator/bin/plannotator.js"]);
+    const existing = new Set([
+      "/repo/plannotator/bin/plannotator.js",
+      "/repo/plannotator/apps/hook/server/index.ts",
+      "/repo/plannotator/apps/hook/dist/index.html",
+      "/repo/plannotator/apps/hook/dist/review.html",
+      "/repo/plannotator/apps/debug-frontend/dist/index.html",
+    ]);
     const commands: Array<[string, string[]]> = [];
     const run: CommandRunner = (command, args) => {
       commands.push([command, args]);
@@ -326,6 +332,27 @@ describe("OpenCode binary client", () => {
         input: JSON.stringify({ origin: "opencode", plan: "# Plan", cwd: "/repo" }),
       },
     ]);
+  });
+
+  test("includes the command timeout in plugin requests", async () => {
+    const response = createPluginSuccessResponse({ approved: true });
+    let inputBody: unknown;
+    const run: CommandRunner = (_command, _args, input) => {
+      inputBody = JSON.parse(input ?? "{}");
+      return { exitCode: 0, stdout: JSON.stringify(response), stderr: "" };
+    };
+
+    await runPluginPlan(
+      "/bin/plannotator",
+      {
+        origin: "opencode",
+        plan: "# Plan",
+      },
+      run,
+      { timeoutMs: 12_000 },
+    );
+
+    expect(inputBody).toMatchObject({ timeoutMs: 12_000 });
   });
 
   test("turns malformed plugin plan output into a protocol error", async () => {

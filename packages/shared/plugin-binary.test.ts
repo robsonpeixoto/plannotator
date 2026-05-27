@@ -55,6 +55,10 @@ describe("discoverPlannotatorBinary", () => {
       sourceRoot: "/repo/plannotator",
       exists: existsOnly([
         "/repo/plannotator/bin/plannotator.js",
+        "/repo/plannotator/apps/hook/server/index.ts",
+        "/repo/plannotator/apps/hook/dist/index.html",
+        "/repo/plannotator/apps/hook/dist/review.html",
+        "/repo/plannotator/apps/debug-frontend/dist/index.html",
         "/old/plannotator",
       ]),
       platform: "linux",
@@ -75,6 +79,10 @@ describe("discoverPlannotatorBinary", () => {
       sourceRoot: "C:\\repo\\plannotator",
       exists: existsOnly([
         "C:\\repo\\plannotator/bin/plannotator.cmd",
+        "C:\\repo\\plannotator/apps/hook/server/index.ts",
+        "C:\\repo\\plannotator/apps/hook/dist/index.html",
+        "C:\\repo\\plannotator/apps/hook/dist/review.html",
+        "C:\\repo\\plannotator/apps/debug-frontend/dist/index.html",
         "C:\\Old/plannotator.exe",
       ]),
       platform: "win32",
@@ -98,6 +106,27 @@ describe("discoverPlannotatorBinary", () => {
       "/repo/plannotator/apps/pi-extension/generated",
       existsOnly([...existing]),
     )).toBe("/repo/plannotator");
+  });
+
+  test("skips an unbuilt source checkout shim", () => {
+    const result = discoverPlannotatorBinary({
+      env: { PATH: "/old" },
+      homeDir: "/home/test",
+      sourceRoot: "/repo/plannotator",
+      exists: existsOnly([
+        "/repo/plannotator/bin/plannotator.js",
+        "/repo/plannotator/apps/hook/server/index.ts",
+        "/old/plannotator",
+      ]),
+      platform: "linux",
+      pathDelimiter: ":",
+    });
+
+    expect(result).toMatchObject({
+      found: true,
+      path: "/old/plannotator",
+      source: "path",
+    });
   });
 
   test("falls back to standard install location", () => {
@@ -229,8 +258,13 @@ describe("plugin binary install and capabilities", () => {
 
   test("parses and validates plugin capabilities", () => {
     const capabilities = getPluginCapabilities();
+    const rolloutCompatible = {
+      ...capabilities,
+      multiSessionDaemon: false,
+    };
 
     expect(parsePluginCapabilities(JSON.stringify(capabilities))).toEqual(capabilities);
+    expect(parsePluginCapabilities(JSON.stringify(rolloutCompatible))).toEqual(rolloutCompatible);
     expect(isCompatiblePluginBinary(capabilities)).toBe(true);
     expect(parsePluginCapabilities(JSON.stringify({
       ...capabilities,
