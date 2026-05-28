@@ -4,6 +4,27 @@ Tracked issues and feature requests for the daemon frontend app.
 
 ---
 
+## TODO — Post-merge human verification (deferred from PR #813 & #814)
+
+These two changes were code-reviewed (interrogate, 4 models each) and typecheck/build/unit-test clean, but could not be verified visually/interactively in the agent environment (no browser automation; `glab` not installed). Verify by hand:
+
+**Add-Project dialog → Radix (PR #813):**
+- [ ] Open the landing page → "Add project". Dialog opens **anchored near the top** (~15vh), ~512px wide — not centered or full-width.
+- [ ] Search input is **focused on open** (can type without clicking).
+- [ ] Keyboard nav works: ↑/↓ move selection (Recent + Directories), Tab navigates into a dir, Enter selects, Esc closes.
+- [ ] Backdrop click closes; the single X button closes; there is **only one** close button.
+- [ ] Footer hint row is visible; on a short window the list scrolls rather than clipping.
+- [ ] No Radix "Missing Description" console warning in dev.
+
+**GitLab dashboard (PR #814)** — requires `glab` installed + authenticated and a GitLab remote:
+- [ ] gitlab.com repo: dashboard **lists open MRs** (not blank, not "coming soon").
+- [ ] Self-hosted GitLab on a **custom domain** (e.g. `code.company.com`) is detected as GitLab and lists MRs (not misrouted to `gh`).
+- [ ] MR rows show title/author/state/draft; additions/deletions render as **"—"** (not `+0 −0`).
+- [ ] Force a fetch failure (revoke token / bad permission) → dashboard shows a **"Failed to load"** message, not a silent blank.
+- [ ] Regression: GitHub repos still list PRs and stacks exactly as before.
+
+---
+
 ## 1. ~~Completion overlay blocks the frontend~~ DONE
 
 Fixed in `7d2a626a`. Embedded surfaces now show a `CompletionBanner` (inline bar below the header) instead of the full-screen overlay. Action buttons hide after submission. Standalone mode unchanged.
