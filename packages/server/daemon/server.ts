@@ -23,7 +23,7 @@ import { readImprovementHook, getImprovementHookExpectedPath } from "@plannotato
 import { composeImproveContext } from "@plannotator/shared/pfm-reminder";
 import { readSnapshot } from "./session-store";
 import { parseRemoteUrl, parseRemoteHost } from "@plannotator/shared/repo";
-import { checkPRAuth, fetchPRList, fetchPRDetailedList } from "../pr";
+import { detectPlatform, checkPRAuth, fetchPRList, fetchPRDetailedList } from "../pr";
 import type { PRRef, PRListItem, PRDetailedListItem } from "@plannotator/shared/pr-types";
 
 const RESULT_DELETE_GRACE_MS = 2_000;
@@ -669,8 +669,8 @@ export function createDaemonFetchHandler(options: DaemonServerOptions): DaemonFe
           if (!host || !repoPath) {
             return json({ ok: true, prs: [], platform: null, error: "no-remote" });
           }
-          const isGitLab = host.toLowerCase().includes("gitlab");
-          const platform = isGitLab ? "gitlab" : "github";
+          const platform = await detectPlatform(host);
+          const isGitLab = platform === "gitlab";
           let ref: PRRef;
           if (isGitLab) {
             ref = { platform: "gitlab", host, projectPath: repoPath, iid: 0 };
@@ -689,12 +689,22 @@ export function createDaemonFetchHandler(options: DaemonServerOptions): DaemonFe
           }
           if (isDetailed) {
             let prs: PRDetailedListItem[];
-            try { prs = await fetchPRDetailedList(ref); } catch { return json({ ok: true, prs: [], platform }); }
+            try {
+              prs = await fetchPRDetailedList(ref);
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              return json({ ok: true, prs: [], platform, error: "fetch-failed", message });
+            }
             prDetailedListCache.set(cwd, { prs, platform, time: now });
             return json({ ok: true, prs, platform });
           } else {
             let prs: PRListItem[];
-            try { prs = await fetchPRList(ref); } catch { return json({ ok: true, prs: [], platform }); }
+            try {
+              prs = await fetchPRList(ref);
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              return json({ ok: true, prs: [], platform, error: "fetch-failed", message });
+            }
             let defaultBranch = "main";
             try {
               const symRef = execSync("git symbolic-ref refs/remotes/origin/HEAD", { cwd, encoding: "utf-8" }).trim();
