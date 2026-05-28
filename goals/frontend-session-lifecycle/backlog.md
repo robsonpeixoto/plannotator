@@ -10,19 +10,15 @@ Fixed in `7d2a626a`. Embedded surfaces now show a `CompletionBanner` (inline bar
 
 ---
 
-## 2. Tab mode config (open new tabs + auto-close)
+## ~~2. Tab mode config (open new tabs + auto-close)~~ DONE
 
-**Priority:** Low — may not diverge from default UX at all
-**Size:** Small (once #6 is done)
+Implemented and wired end to end as `legacyTabMode` in `~/.plannotator/config.json` (default `false`):
+- **Setting persists:** the Settings → General toggle (`packages/ui/components/settings/GeneralTab.tsx:109-114`) is wired in `apps/frontend/src/components/settings/AppSettingsDialog.tsx:223-228`, which POSTs `{ legacyTabMode }` to `/daemon/config`; the daemon allowlists and saves it (`packages/server/daemon/server.ts:732`).
+- **Daemon behavior:** `presentSession()` (`packages/server/daemon/runtime.ts:103`) skips the WebSocket `session-notify` path and always calls `openBrowser()` when `legacyTabMode` is set.
+- **Frontend UI:** code review renders the full-screen `CompletionOverlay` (countdown + close) instead of the inline `CompletionBanner` when in legacy tab mode (`packages/plannotator-code-review/App.tsx:2204` / `:2518`).
+- Documented in `CLAUDE.md` under config-only settings.
 
-Some users will prefer each session opening in a new browser tab with auto-close after a decision. This is a config toggle, NOT a separate UI — the new frontend always renders.
-
-**Config:** `legacyTabMode: true` (or similar) in `~/.plannotator/config.json`. When set:
-- CLI always calls `openBrowser()` for each session (no WebSocket navigate/notify)
-- Auto-close behavior uses existing `plannotator-auto-close` cookie mechanism
-- Same frontend app, same surfaces, just one-session-per-tab
-
-**Open question:** Once the core session lifecycle (#3, #4, #6) is designed, this might just be a single boolean that skips the "smart open" logic. Deferring until we see how much the UX actually diverges.
+Verified by reading all five call sites; no remaining work.
 
 ---
 
