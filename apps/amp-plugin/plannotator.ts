@@ -614,8 +614,7 @@ async function resolvePlannotatorRuntime(): Promise<PlannotatorRuntime> {
     };
   }
 
-  const command = ["plannotator"];
-  const version = detectPlannotatorVersion(command);
+  const { command, version } = resolvePlannotatorCommand();
   return {
     command,
     source: "cli",
@@ -625,6 +624,79 @@ async function resolvePlannotatorRuntime(): Promise<PlannotatorRuntime> {
       stdinLast: semverGte(version, MIN_STDIN_LAST_VERSION),
     },
   };
+}
+
+function resolvePlannotatorCommand(): { command: string[]; version: string | null } {
+  const candidates = getPlannotatorCommandCandidates();
+  let fallback = candidates[candidates.length - 1] ?? ["plannotator"];
+
+  for (const command of candidates) {
+    const executable = command[0];
+    if (!executable) continue;
+
+    if (isPathLike(executable)) {
+      if (!existsSync(executable)) continue;
+      const version = detectPlannotatorVersion(command);
+      return { command, version };
+    }
+
+    fallback = command;
+    const version = detectPlannotatorVersion(command);
+    if (version) return { command, version };
+  }
+
+  return { command: fallback, version: detectPlannotatorVersion(fallback) };
+}
+
+export function getPlannotatorCommandCandidates(
+  options: {
+    env?: Record<string, string | undefined>;
+    home?: string;
+    platform?: string;
+  } = {},
+): string[][] {
+  const env = options.env ?? process.env;
+  const home = options.home ?? homedir();
+  const platform = options.platform ?? process.platform;
+  const candidates: string[][] = [];
+
+  const explicitBin = normalizeExecutablePath(env.PLANNOTATOR_BIN);
+  if (explicitBin) candidates.push([explicitBin]);
+
+  if (platform === "win32") {
+    const localAppData = normalizeExecutablePath(env.LOCALAPPDATA);
+    if (localAppData) candidates.push([join(localAppData, "plannotator", "plannotator.exe")]);
+
+    const userProfile = normalizeExecutablePath(env.USERPROFILE) ?? home;
+    candidates.push([join(userProfile, ".local", "bin", "plannotator.exe")]);
+  } else {
+    candidates.push([join(home, ".local", "bin", "plannotator")]);
+  }
+
+  candidates.push(["plannotator"]);
+  return dedupeCommands(candidates);
+}
+
+function normalizeExecutablePath(value: string | undefined): string | null {
+  const candidate = value?.trim();
+  if (!candidate || candidate === "undefined" || candidate === "null") return null;
+  return candidate;
+}
+
+function dedupeCommands(commands: string[][]): string[][] {
+  const seen = new Set<string>();
+  const deduped: string[][] = [];
+  for (const command of commands) {
+    const key = command.join("\0");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(command);
+  }
+  return deduped;
+}
+
+function isPathLike(command: string): boolean {
+  return command.includes("/") || command.includes("\\");
 }
 
 function findSourceEntry(startDir: string): string | null {

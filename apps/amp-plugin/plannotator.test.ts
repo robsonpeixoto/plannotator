@@ -8,6 +8,7 @@ import {
   findFirstPositionalArg,
   formatAnnotationFeedback,
   getPlannotatorDataDir,
+  getPlannotatorCommandCandidates,
   isNoActionFeedback,
   parseAnnotateDecision,
   parseReviewTargetInput,
@@ -158,6 +159,48 @@ describe("Amp Plannotator plugin helpers", () => {
     } finally {
       restoreEnv("PLANNOTATOR_DATA_DIR", originalDataDir);
     }
+  });
+
+  test("prefers installer binary paths before PATH lookup", () => {
+    expect(
+      getPlannotatorCommandCandidates({
+        home: "/Users/alice",
+        platform: "darwin",
+        env: {},
+      }),
+    ).toEqual([
+      ["/Users/alice/.local/bin/plannotator"],
+      ["plannotator"],
+    ]);
+
+    expect(
+      getPlannotatorCommandCandidates({
+        home: String.raw`C:\Users\alice`,
+        platform: "win32",
+        env: {
+          LOCALAPPDATA: String.raw`C:\Users\alice\AppData\Local`,
+          USERPROFILE: String.raw`C:\Users\alice`,
+        },
+      }),
+    ).toEqual([
+      [String.raw`C:\Users\alice\AppData\Local/plannotator/plannotator.exe`],
+      [String.raw`C:\Users\alice/.local/bin/plannotator.exe`],
+      ["plannotator"],
+    ]);
+  });
+
+  test("allows explicit PLANNOTATOR_BIN override", () => {
+    expect(
+      getPlannotatorCommandCandidates({
+        home: "/Users/alice",
+        platform: "darwin",
+        env: { PLANNOTATOR_BIN: "/opt/plannotator/bin/plannotator" },
+      }),
+    ).toEqual([
+      ["/opt/plannotator/bin/plannotator"],
+      ["/Users/alice/.local/bin/plannotator"],
+      ["plannotator"],
+    ]);
   });
 });
 
