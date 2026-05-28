@@ -227,7 +227,10 @@ if ($verifyAttestationResolved) {
 # Stop any running daemon before replacing the binary. On Windows the running
 # exe is file-locked; on upgrades the old daemon would serve stale code.
 if (Test-Path "$installDir\plannotator.exe") {
-    Start-Process -FilePath "$installDir\plannotator.exe" -ArgumentList "daemon","stop" -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue
+    $stopProc = Start-Process -FilePath "$installDir\plannotator.exe" -ArgumentList "daemon","stop" -WindowStyle Hidden -PassThru -ErrorAction SilentlyContinue
+    if ($stopProc -and !$stopProc.WaitForExit(10000)) {
+        $stopProc.Kill()
+    }
 }
 
 Move-Item -Force $tmpFile "$installDir\plannotator.exe"
