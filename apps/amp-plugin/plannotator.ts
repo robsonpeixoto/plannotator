@@ -1,14 +1,26 @@
 import type { PluginAPI, PluginCommandContext, ThreadMessage } from "@ampcode/plugin";
-import { existsSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
-import { randomUUID } from "node:crypto";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
+import {
+  ensurePlannotatorBinary,
+  findPlannotatorSourceRoot,
+  runPluginAnnotate,
+  runPluginReview,
+  type CommandRunOptions,
+  type EnsurePlannotatorBinaryResult,
+} from "./binary-client";
+import type {
+  PluginAnnotateRequest,
+  PluginAnnotateResult,
+  PluginFeature,
+  PluginResponse,
+  PluginReviewRequest,
+  PluginReviewResult,
+} from "../../packages/shared/plugin-protocol";
 
 const CATEGORY = "Plannotator";
 const INSTALL_URL = "https://plannotator.ai/docs/getting-started/installation/";
-const READY_TIMEOUT_MS = 30_000;
-const MIN_READY_FILE_VERSION = "0.19.24";
-const MIN_STDIN_LAST_VERSION = "0.19.24";
 const RUNTIME = "amp";
 
 const DEFAULT_ANNOTATE_FILE_FEEDBACK_PROMPT =
@@ -17,35 +29,13 @@ const DEFAULT_ANNOTATE_MESSAGE_FEEDBACK_PROMPT =
   "# Message Annotations\n\n{{feedback}}\n\nPlease address the annotation feedback above.";
 
 type CommandContext = PluginCommandContext;
-type ReadyResult = "ready" | "exited" | "timeout";
 
-interface RunResult {
-  status: number;
-  stdout: string;
-  stderr: string;
-  error?: string;
+/** Dependency seam so command handlers can be exercised with fake clients in tests. */
+export interface BinaryClientDeps {
+  ensurePlannotatorBinary?: typeof ensurePlannotatorBinary;
+  runPluginReview?: typeof runPluginReview;
+  runPluginAnnotate?: typeof runPluginAnnotate;
 }
-
-interface AnnotateDecision {
-  decision: "approved" | "dismissed" | "annotated";
-  feedback?: string;
-}
-
-interface ExitState {
-  done: boolean;
-}
-
-interface PlannotatorRuntime {
-  command: string[];
-  source: "cli" | "source";
-  version: string | null;
-  features: {
-    readyFile: boolean;
-    stdinLast: boolean;
-  };
-}
-
-let runtimePromise: Promise<PlannotatorRuntime> | null = null;
 
 export default function plannotatorAmpPlugin(amp: PluginAPI) {
   amp.logger.log("[plannotator] Amp plugin initialized");
@@ -58,8 +48,7 @@ export default function plannotatorAmpPlugin(amp: PluginAPI) {
       description: "Open Plannotator code review for the current workspace changes.",
     },
     async (ctx) => {
-      const result = await runPlannotator(amp, ctx, ["review"]);
-      await handleReviewResult(ctx, result);
+      await runReview(amp, ctx, "");
     },
   );
 
@@ -80,8 +69,7 @@ export default function plannotatorAmpPlugin(amp: PluginAPI) {
       const reviewArgs = parseReviewTargetInput(target);
       if (!reviewArgs) return;
 
-      const result = await runPlannotator(amp, ctx, ["review", ...reviewArgs]);
-      await handleReviewResult(ctx, result);
+      await runReview(amp, ctx, reviewArgs.join(" "));
     },
   );
 
@@ -100,12 +88,7 @@ export default function plannotatorAmpPlugin(amp: PluginAPI) {
       });
       if (!target?.trim()) return;
 
-      const args = splitCommandArgs(target);
-      if (args.length === 0) return;
-      const filePath = findFirstPositionalArg(args) ?? args[0];
-
-      const result = await runPlannotator(amp, ctx, ["annotate", ...args, "--json"]);
-      await handleAnnotateResult(ctx, result, { kind: "file", filePath });
+      await runAnnotate(amp, ctx, target.trim());
     },
   );
 
@@ -128,69 +111,250 @@ export default function plannotatorAmpPlugin(amp: PluginAPI) {
         return;
       }
 
-      const runtime = await getPlannotatorRuntime();
-      let tempFile: string | null = null;
-      let result: RunResult;
-
-      try {
-        if (runtime.features.stdinLast) {
-          result = await runPlannotator(
-            amp,
-            ctx,
-            ["annotate-last", "--stdin", "--json"],
-            { stdin: message, runtime },
-          );
-        } else {
-          tempFile = join(tmpdir(), `plannotator-amp-last-${process.pid}-${Date.now()}-${randomUUID()}.md`);
-          writeFileSync(tempFile, message, "utf8");
-          result = await runPlannotator(amp, ctx, ["annotate", tempFile, "--json"], { runtime });
-        }
-      } finally {
-        if (tempFile) {
-          try {
-            unlinkSync(tempFile);
-          } catch {
-            // Best-effort cleanup for the fallback message file.
-          }
-        }
-      }
-
-      await handleAnnotateResult(ctx, result, { kind: "message" });
+      await runAnnotateLast(amp, ctx, message);
     },
   );
 }
 
-export function extractTextFromThreadMessage(message: ThreadMessage): string {
-  if (message.role !== "assistant") return "";
-  return message.content
-    .filter((block) => block.type === "text" && block.text.trim())
-    .map((block) => block.text.trim())
-    .join("\n\n")
-    .trim();
+// ── Command runners ─────────────────────────────────────────────────────────
+
+export async function runReview(
+  amp: PluginAPI,
+  ctx: CommandContext,
+  args: string,
+  deps: BinaryClientDeps = {},
+): Promise<void> {
+  const cwd = await resolveCwd(ctx);
+  const binary = ensureBinary(["code-review"], deps);
+  if (!binary.ok) {
+    await ctx.ui.notify(failureMessage("review", binary));
+    return;
+  }
+
+  const request: PluginReviewRequest = {
+    ...buildBaseRequest(cwd),
+    args,
+  };
+  const response = await (deps.runPluginReview ?? runPluginReview)(
+    binary.path,
+    request,
+    undefined,
+    runOptions(amp, ctx, cwd),
+  );
+
+  await handleReviewResult(ctx, response);
 }
 
-export function parseAnnotateDecision(raw: string): AnnotateDecision | null {
-  const trimmed = raw.trim();
-  if (!trimmed) return { decision: "dismissed" };
+export async function runAnnotate(
+  amp: PluginAPI,
+  ctx: CommandContext,
+  args: string,
+  deps: BinaryClientDeps = {},
+): Promise<void> {
+  const cwd = await resolveCwd(ctx);
+  const binary = ensureBinary(["annotate"], deps);
+  if (!binary.ok) {
+    await ctx.ui.notify(failureMessage("annotate", binary));
+    return;
+  }
 
-  try {
-    const parsed = JSON.parse(trimmed) as Partial<AnnotateDecision>;
-    if (
-      parsed &&
-      (parsed.decision === "approved" ||
-        parsed.decision === "dismissed" ||
-        parsed.decision === "annotated")
-    ) {
-      return {
-        decision: parsed.decision,
-        feedback: typeof parsed.feedback === "string" ? parsed.feedback : undefined,
-      };
-    }
-  } catch {
-    return null;
+  const filePath = findFirstPositionalArg(splitCommandArgs(args)) ?? args;
+  const request: PluginAnnotateRequest = {
+    ...buildBaseRequest(cwd),
+    args,
+  };
+  const response = await (deps.runPluginAnnotate ?? runPluginAnnotate)(
+    binary.path,
+    request,
+    undefined,
+    runOptions(amp, ctx, cwd),
+  );
+
+  await handleAnnotateResult(ctx, response, { kind: "file", filePath });
+}
+
+export async function runAnnotateLast(
+  amp: PluginAPI,
+  ctx: CommandContext,
+  message: string,
+  deps: BinaryClientDeps = {},
+): Promise<void> {
+  const cwd = await resolveCwd(ctx);
+  const binary = ensureBinary(["annotate-last"], deps);
+  if (!binary.ok) {
+    await ctx.ui.notify(failureMessage("annotate", binary));
+    return;
+  }
+
+  const request: PluginAnnotateRequest = {
+    ...buildBaseRequest(cwd),
+    markdown: message,
+    filePath: "last-message",
+    mode: "annotate-last",
+  };
+  const response = await (deps.runPluginAnnotate ?? runPluginAnnotate)(
+    binary.path,
+    request,
+    undefined,
+    runOptions(amp, ctx, cwd),
+  );
+
+  await handleAnnotateResult(ctx, response, { kind: "message" });
+}
+
+// ── Binary-client wiring ──────────────────────────────────────────────────────
+
+export function buildBaseRequest(cwd: string): {
+  origin: "amp";
+  cwd: string;
+  sharingEnabled: boolean;
+  shareBaseUrl: string | undefined;
+  pasteApiUrl: string | undefined;
+} {
+  return {
+    origin: RUNTIME,
+    cwd,
+    sharingEnabled: process.env.PLANNOTATOR_SHARE !== "disabled",
+    shareBaseUrl: process.env.PLANNOTATOR_SHARE_URL || undefined,
+    pasteApiUrl: process.env.PLANNOTATOR_PASTE_URL || undefined,
+  };
+}
+
+function ensureBinary(
+  requiredFeatures: readonly PluginFeature[],
+  deps: BinaryClientDeps,
+): EnsurePlannotatorBinaryResult {
+  return (deps.ensurePlannotatorBinary ?? ensurePlannotatorBinary)({
+    requiredFeatures,
+    sourceRoot: findPlannotatorSourceRoot(import.meta.dir),
+  });
+}
+
+function runOptions(amp: PluginAPI, ctx: CommandContext, cwd: string): CommandRunOptions {
+  return {
+    // Plan/review/annotate sessions can stay open as long as the user needs;
+    // mirror OpenCode/Pi and never time the daemon out.
+    timeoutMs: null,
+    cwd,
+    env: buildEnv({ PLANNOTATOR_ORIGIN: RUNTIME, PLANNOTATOR_CWD: cwd }),
+    onSession: (session) => {
+      amp.logger.log(`[plannotator] session ready: ${session.url}`);
+      void ctx.ui.notify(`Plannotator link:\n${session.url}`);
+    },
+  };
+}
+
+// ── Result handling ───────────────────────────────────────────────────────────
+
+export async function handleReviewResult(
+  ctx: CommandContext,
+  response: PluginResponse<PluginReviewResult>,
+): Promise<void> {
+  if (!response.ok) {
+    await ctx.ui.notify(`Plannotator review failed.\n\n${response.error.message}`);
+    return;
+  }
+
+  const result = response.result;
+  if (result.exit) return;
+
+  const message = result.prompt ?? result.feedback;
+  if (!message || isNoActionFeedback(message)) {
+    await ctx.ui.notify(message?.trim() || "Review session closed without feedback.");
+    return;
+  }
+
+  await appendFeedback(ctx, message);
+}
+
+export async function handleAnnotateResult(
+  ctx: CommandContext,
+  response: PluginResponse<PluginAnnotateResult>,
+  options: { kind: "file"; filePath: string } | { kind: "message" },
+): Promise<void> {
+  if (!response.ok) {
+    await ctx.ui.notify(`Plannotator annotate failed.\n\n${response.error.message}`);
+    return;
+  }
+
+  const result = response.result;
+  if (result.exit || result.approved) {
+    await ctx.ui.notify("Annotation session closed.");
+    return;
+  }
+
+  // The daemon composes a ready-to-send prompt; prefer it. Otherwise fall back
+  // to the raw feedback wrapped via the configurable per-runtime templates so
+  // `~/.plannotator/config.json` prompt overrides still apply.
+  const message =
+    result.prompt ??
+    formatAnnotationFeedback({ decision: "annotated", feedback: result.feedback }, options) ??
+    result.feedback;
+
+  if (!message || isNoActionFeedback(message)) {
+    await ctx.ui.notify("Annotation session closed without feedback.");
+    return;
+  }
+
+  await appendFeedback(ctx, message);
+}
+
+async function appendFeedback(ctx: CommandContext, content: string): Promise<void> {
+  if (!ctx.thread) {
+    await ctx.ui.notify("Plannotator produced feedback, but there is no active Amp thread.");
+    return;
+  }
+
+  await ctx.thread.append([{ type: "user-message", content }]);
+}
+
+function failureMessage(
+  mode: "review" | "annotate",
+  binary: Extract<EnsurePlannotatorBinaryResult, { ok: false }>,
+): string {
+  const missingExecutable =
+    binary.code === "missing-binary" ||
+    binary.code === "incompatible-binary" ||
+    binary.code === "install-failed" ||
+    binary.code === "install-missing-binary";
+  const installHint = missingExecutable ? `\n\nInstall the CLI first: ${INSTALL_URL}` : "";
+  return `Plannotator ${mode} failed.\n\n${binary.message}${installHint}`;
+}
+
+// ── Thread helpers ────────────────────────────────────────────────────────────
+
+export function extractTextFromThreadMessage(message: ThreadMessage): string {
+  if (message.role !== "assistant") return "";
+  const parts: string[] = [];
+  for (const block of message.content) {
+    if (block.type !== "text") continue;
+    const text = typeof block.text === "string" ? block.text.trim() : "";
+    if (text) parts.push(text);
+  }
+  return parts.join("\n\n").trim();
+}
+
+async function getLatestAssistantText(ctx: CommandContext): Promise<string | null> {
+  if (!ctx.thread) return null;
+
+  const latest = await ctx.thread.messages({ from: "end", limit: 1, roles: ["assistant"] });
+  const latestText = latest.map(extractTextFromThreadMessage).find(Boolean);
+  if (latestText) return latestText;
+
+  const recent = await ctx.thread.messages({ from: "end", limit: 20, roles: ["assistant"] });
+  for (let i = recent.length - 1; i >= 0; i -= 1) {
+    const text = extractTextFromThreadMessage(recent[i]);
+    if (text) return text;
   }
 
   return null;
+}
+
+// ── Feedback formatting ───────────────────────────────────────────────────────
+
+interface AnnotateDecision {
+  decision: "approved" | "dismissed" | "annotated";
+  feedback?: string;
 }
 
 export function formatAnnotationFeedback(
@@ -222,11 +386,11 @@ export function isNoActionFeedback(output: string): boolean {
     normalized === "" ||
     normalized === "review session closed without feedback." ||
     normalized === "annotation session closed." ||
-    normalized === "approved." ||
-    normalized === "the user approved." ||
     normalized.includes("has no feedback")
   );
 }
+
+// ── Argument parsing ──────────────────────────────────────────────────────────
 
 export function splitCommandArgs(input: string): string[] {
   const args: string[] = [];
@@ -303,168 +467,7 @@ export function parseReviewTargetInput(target: string | undefined): string[] | n
   return target.trim() ? splitCommandArgs(target) : [];
 }
 
-async function getLatestAssistantText(ctx: CommandContext): Promise<string | null> {
-  if (!ctx.thread) return null;
-
-  const latest = await ctx.thread.messages({ from: "end", limit: 1, roles: ["assistant"] });
-  const latestText = latest.map(extractTextFromThreadMessage).find(Boolean);
-  if (latestText) return latestText;
-
-  const recent = await ctx.thread.messages({ from: "end", limit: 20, roles: ["assistant"] });
-  for (let i = recent.length - 1; i >= 0; i -= 1) {
-    const text = extractTextFromThreadMessage(recent[i]);
-    if (text) return text;
-  }
-
-  return null;
-}
-
-async function handleReviewResult(ctx: CommandContext, result: RunResult): Promise<void> {
-  if (await notifyFailure(ctx, result, "review")) return;
-
-  const output = result.stdout.trim();
-  if (isNoActionFeedback(output)) {
-    await ctx.ui.notify(output || "Review session closed without feedback.");
-    return;
-  }
-
-  await appendFeedback(ctx, output);
-}
-
-async function handleAnnotateResult(
-  ctx: CommandContext,
-  result: RunResult,
-  options: { kind: "file"; filePath: string } | { kind: "message" },
-): Promise<void> {
-  if (await notifyFailure(ctx, result, "annotate")) return;
-
-  const decision = parseAnnotateDecision(result.stdout);
-  if (decision?.decision === "approved") {
-    await ctx.ui.notify("Approved.");
-    return;
-  }
-  if (decision?.decision === "dismissed") {
-    await ctx.ui.notify("Annotation session closed.");
-    return;
-  }
-
-  const feedback = decision
-    ? formatAnnotationFeedback(decision, options)
-    : result.stdout.trim();
-
-  if (!feedback || isNoActionFeedback(feedback)) {
-    await ctx.ui.notify("Annotation session closed without feedback.");
-    return;
-  }
-
-  await appendFeedback(ctx, feedback);
-}
-
-async function appendFeedback(ctx: CommandContext, content: string): Promise<void> {
-  if (!ctx.thread) {
-    await ctx.ui.notify("Plannotator produced feedback, but there is no active Amp thread.");
-    return;
-  }
-
-  await ctx.thread.append([{ type: "user-message", content }]);
-}
-
-async function notifyFailure(
-  ctx: CommandContext,
-  result: RunResult,
-  mode: "review" | "annotate",
-): Promise<boolean> {
-  if (!result.error && result.status === 0) return false;
-
-  const details = [result.error, result.stderr.trim(), result.stdout.trim()]
-    .filter(Boolean)
-    .join("\n")
-    .trim();
-  const missingExecutable = /\bENOENT\b/i.test(details) ||
-    /executable not found/i.test(details) ||
-    /command not found/i.test(details);
-  const installHint = missingExecutable
-    ? `\n\nInstall the CLI first: ${INSTALL_URL}`
-    : "";
-
-  await ctx.ui.notify(`Plannotator ${mode} failed.${details ? `\n\n${details}` : ""}${installHint}`);
-  return true;
-}
-
-async function runPlannotator(
-  amp: PluginAPI,
-  ctx: CommandContext,
-  args: string[],
-  options: { stdin?: string; runtime?: PlannotatorRuntime } = {},
-): Promise<RunResult> {
-  const cwd = await resolveCwd(ctx);
-  const runtime = options.runtime ?? await getPlannotatorRuntime();
-  const readyFile = runtime.features.readyFile
-    ? join(tmpdir(), `plannotator-amp-${process.pid}-${Date.now()}-${randomUUID()}.jsonl`)
-    : null;
-  const command = [...runtime.command, ...args];
-  const env = buildEnv(buildPlannotatorEnv(cwd, readyFile));
-
-  let proc: Bun.Subprocess<"ignore" | "pipe", "pipe", "pipe">;
-  try {
-    proc = Bun.spawn(command, {
-      cwd,
-      env,
-      stdin: options.stdin ? "pipe" : "ignore",
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-  } catch (error) {
-    return {
-      status: 1,
-      stdout: "",
-      stderr: "",
-      error: error instanceof Error ? error.message : String(error),
-    };
-  }
-
-  if (options.stdin && proc.stdin) {
-    proc.stdin.write(options.stdin);
-    proc.stdin.end();
-  }
-
-  const exitState: ExitState = { done: false };
-  const stdoutPromise = new Response(proc.stdout).text();
-  const stderrPromise = collectStderr(amp, ctx, proc.stderr);
-  const exitedPromise = proc.exited.finally(() => {
-    exitState.done = true;
-  });
-
-  let readyPromise: Promise<ReadyResult> | null = null;
-  if (readyFile) {
-    readyPromise = waitForReadyFile(readyFile, exitState);
-    const readyResult = await readyPromise;
-    if (readyResult === "timeout") {
-      try {
-        proc.kill();
-      } catch {
-        // Process may already have exited.
-      }
-    }
-  }
-
-  const status = await exitedPromise;
-  const [stdout, stderr] = await Promise.all([stdoutPromise, stderrPromise]);
-
-  try {
-    if (readyFile) unlinkSync(readyFile);
-  } catch {
-    // Temporary ready file may not exist if the command failed early.
-  }
-
-  const readyTimedOut = readyPromise ? (await readyPromise) === "timeout" : false;
-  return {
-    status,
-    stdout,
-    stderr,
-    ...(readyTimedOut ? { error: "Timed out waiting for Plannotator to publish its browser URL." } : {}),
-  };
-}
+// ── Workspace resolution ──────────────────────────────────────────────────────
 
 export async function resolveCwd(ctx: CommandContext): Promise<string> {
   const explicitCwd = normalizeDirectory(process.env.PLANNOTATOR_CWD);
@@ -536,14 +539,6 @@ function fileUrlToPath(value: string): string {
     : pathname;
 }
 
-export function buildPlannotatorEnv(cwd: string, readyFile: string | null): Record<string, string> {
-  return {
-    PLANNOTATOR_ORIGIN: RUNTIME,
-    PLANNOTATOR_CWD: cwd,
-    ...(readyFile ? { PLANNOTATOR_READY_FILE: readyFile } : {}),
-  };
-}
-
 function normalizeDirectory(value: string | undefined): string | null {
   const candidate = value?.trim();
   if (!candidate || candidate === "undefined" || candidate === "null") return null;
@@ -555,327 +550,31 @@ function normalizeDirectory(value: string | undefined): string | null {
   }
 }
 
-export function buildEnv(extra: Record<string, string>): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries(process.env)) {
-    if (typeof value === "string") env[key] = value;
-  }
-  delete env.BUN_BE_BUN;
-  return { ...env, ...extra };
+function getAmpCacheDir(): string {
+  const cacheHome = normalizeOptionalPath(process.env.XDG_CACHE_HOME);
+  return cacheHome ? join(cacheHome, "amp") : join(homedir(), ".cache", "amp");
 }
 
-async function collectStderr(
-  amp: PluginAPI,
-  ctx: CommandContext,
-  stream: ReadableStream<Uint8Array>,
-): Promise<string> {
-  const decoder = new TextDecoder();
-  const reader = stream.getReader();
-  const seenUrls = new Set<string>();
-  let output = "";
-  let lineBuffer = "";
-
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-
-    const text = decoder.decode(value, { stream: true });
-    output += text;
-    lineBuffer += text;
-
-    const lines = lineBuffer.split(/\r?\n/);
-    lineBuffer = lines.pop() ?? "";
-    for (const line of lines) {
-      await notifyUrls(ctx, line, seenUrls);
-    }
-  }
-
-  const tail = decoder.decode();
-  output += tail;
-  if (tail) lineBuffer += tail;
-  if (lineBuffer) await notifyUrls(ctx, lineBuffer, seenUrls);
-
-  if (output.trim()) amp.logger.log(output.trim());
-  return output;
-}
-
-async function notifyUrls(
-  ctx: CommandContext,
-  text: string,
-  seenUrls: Set<string>,
-): Promise<void> {
-  const matches = text.match(/https?:\/\/[^\s)]+/g) ?? [];
-  for (const rawUrl of matches) {
-    const url = rawUrl.replace(/[.,;]+$/, "");
-    if (seenUrls.has(url)) continue;
-    seenUrls.add(url);
-    await ctx.ui.notify(`Plannotator link:\n${url}`);
-  }
-}
-
-async function waitForReadyFile(
-  readyFile: string,
-  exitState: ExitState,
-): Promise<ReadyResult> {
-  const deadline = Date.now() + READY_TIMEOUT_MS;
-  const seen = new Set<string>();
-
-  while (Date.now() < deadline) {
-    if (existsSync(readyFile)) {
-      const lines = readFileSync(readyFile, "utf8").split(/\r?\n/).filter(Boolean);
-      for (const line of lines) {
-        let payload: { url?: unknown };
-        try {
-          payload = JSON.parse(line) as { url?: unknown };
-        } catch {
-          // Keep polling; the writer may still be appending the line.
-          continue;
-        }
-
-        if (typeof payload.url !== "string" || seen.has(payload.url)) continue;
-        seen.add(payload.url);
-        return "ready";
-      }
-    }
-
-    if (exitState.done) return "exited";
-    await sleep(100);
-  }
-
-  return "timeout";
-}
-
-async function getPlannotatorRuntime(): Promise<PlannotatorRuntime> {
-  runtimePromise ??= resolvePlannotatorRuntime();
-  return runtimePromise;
-}
-
-async function resolvePlannotatorRuntime(): Promise<PlannotatorRuntime> {
-  const explicitSource = process.env.PLANNOTATOR_AMP_SOURCE_ENTRY;
-  const sourceEntry = explicitSource
-    ? resolve(explicitSource)
-    : process.env.PLANNOTATOR_AMP_USE_SOURCE === "1"
-      ? findSourceEntry(import.meta.dir)
-      : null;
-
-  if (sourceEntry && existsSync(sourceEntry)) {
-    return {
-      command: [getBunExecutable(), sourceEntry],
-      source: "source",
-      version: "source",
-      features: { readyFile: true, stdinLast: true },
-    };
-  }
-
-  const { command, version } = resolvePlannotatorCommand();
-  return {
-    command,
-    source: "cli",
-    version,
-    features: {
-      readyFile: semverGte(version, MIN_READY_FILE_VERSION),
-      stdinLast: semverGte(version, MIN_STDIN_LAST_VERSION),
-    },
-  };
-}
-
-function resolvePlannotatorCommand(): { command: string[]; version: string | null } {
-  const candidates = getPlannotatorCommandCandidates();
-  let fallback = candidates[candidates.length - 1] ?? ["plannotator"];
-
-  for (const command of candidates) {
-    const executable = command[0];
-    if (!executable) continue;
-
-    if (isPathLike(executable)) {
-      if (!existsSync(executable)) continue;
-      const version = detectPlannotatorVersion(command);
-      return { command, version };
-    }
-
-    fallback = command;
-    const version = detectPlannotatorVersion(command);
-    if (version) return { command, version };
-  }
-
-  return { command: fallback, version: detectPlannotatorVersion(fallback) };
-}
-
-export function getPlannotatorCommandCandidates(
-  options: {
-    env?: Record<string, string | undefined>;
-    home?: string;
-    pluginDir?: string;
-    platform?: string;
-  } = {},
-): string[][] {
-  const env = options.env ?? process.env;
-  const homes = getHomeDirectoryCandidates(env, options.home, options.pluginDir ?? import.meta.dir);
-  const platform = options.platform ?? process.platform;
-  const candidates: string[][] = [];
-
-  const explicitBin = normalizeExecutablePath(env.PLANNOTATOR_BIN);
-  if (explicitBin) candidates.push([explicitBin]);
-
-  if (platform === "win32") {
-    const localAppData = normalizeExecutablePath(env.LOCALAPPDATA);
-    if (localAppData) candidates.push([join(localAppData, "plannotator", "plannotator.exe")]);
-
-    for (const home of homes) {
-      candidates.push([join(home, ".local", "bin", "plannotator.exe")]);
-    }
-  } else {
-    for (const home of homes) {
-      candidates.push([join(home, ".local", "bin", "plannotator")]);
-    }
-  }
-
-  candidates.push(["plannotator"]);
-  return dedupeCommands(candidates);
-}
-
-function normalizeExecutablePath(value: string | undefined): string | null {
+function normalizeOptionalPath(value: string | undefined): string | null {
   const candidate = value?.trim();
   if (!candidate || candidate === "undefined" || candidate === "null") return null;
   return candidate;
 }
 
-function getHomeDirectoryCandidates(
-  env: Record<string, string | undefined>,
-  explicitHome: string | undefined,
-  pluginDir: string,
-): string[] {
-  return dedupeStrings([
-    normalizeExecutablePath(explicitHome),
-    normalizeExecutablePath(env.HOME),
-    normalizeExecutablePath(env.USERPROFILE),
-    deriveHomeFromAmpPluginDir(pluginDir),
-    explicitHome === undefined ? normalizeExecutablePath(homedir()) : null,
-  ]);
-}
+// ── Environment ───────────────────────────────────────────────────────────────
 
-function deriveHomeFromAmpPluginDir(pluginDir: string): string | null {
-  const pluginsDir = resolve(pluginDir);
-  const ampDir = dirname(pluginsDir);
-  const configDir = dirname(ampDir);
-
-  if (
-    basename(pluginsDir) === "plugins" &&
-    basename(ampDir) === "amp" &&
-    basename(configDir) === ".config"
-  ) {
-    return dirname(configDir);
+export function buildEnv(extra: Record<string, string>): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (typeof value === "string") env[key] = value;
   }
-
-  return null;
+  // Amp runs the plugin under `bun --bun`; BUN_BE_BUN would force the spawned
+  // plannotator binary into Bun mode too. Scrub it so the binary runs natively.
+  delete env.BUN_BE_BUN;
+  return { ...env, ...extra };
 }
 
-function getAmpCacheDir(): string {
-  const cacheHome = normalizeExecutablePath(process.env.XDG_CACHE_HOME);
-  return cacheHome ? join(cacheHome, "amp") : join(homedir(), ".cache", "amp");
-}
-
-function dedupeCommands(commands: string[][]): string[][] {
-  const seen = new Set<string>();
-  const deduped: string[][] = [];
-  for (const command of commands) {
-    const key = command.join("\0");
-    if (seen.has(key)) continue;
-    seen.add(key);
-    deduped.push(command);
-  }
-  return deduped;
-}
-
-function dedupeStrings(values: Array<string | null>): string[] {
-  const seen = new Set<string>();
-  const deduped: string[] = [];
-  for (const value of values) {
-    if (!value || seen.has(value)) continue;
-    seen.add(value);
-    deduped.push(value);
-  }
-  return deduped;
-}
-
-function isPathLike(command: string): boolean {
-  return command.includes("/") || command.includes("\\");
-}
-
-function findSourceEntry(startDir: string): string | null {
-  const root = findRepoRoot(startDir);
-  if (!root) return null;
-
-  const sourceEntry = join(root, "apps", "hook", "server", "index.ts");
-  return existsSync(sourceEntry) ? sourceEntry : null;
-}
-
-function findRepoRoot(startDir: string): string | null {
-  let dir = resolve(startDir);
-
-  while (true) {
-    const packageJsonPath = join(dir, "package.json");
-    if (existsSync(packageJsonPath)) {
-      try {
-        const pkg = JSON.parse(readFileSync(packageJsonPath, "utf8")) as { name?: unknown };
-        if (pkg.name === "plannotator") return dir;
-      } catch {
-        // Ignore malformed package.json while walking upward.
-      }
-    }
-
-    const parent = dirname(dir);
-    if (parent === dir) return null;
-    dir = parent;
-  }
-}
-
-function getBunExecutable(): string {
-  const candidates = [process.execPath, Bun.argv[0], Bun.which?.("bun"), "bun"];
-  for (const candidate of candidates) {
-    if (typeof candidate !== "string") continue;
-    const value = candidate.trim();
-    if (!value || value === "undefined" || value === "null") continue;
-    return value;
-  }
-
-  return "bun";
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
-}
-
-function detectPlannotatorVersion(command: string[]): string | null {
-  try {
-    const result = Bun.spawnSync([...command, "--version"], {
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    if (result.exitCode !== 0) return null;
-
-    const output = new TextDecoder().decode(result.stdout).trim();
-    const match = output.match(/\b(\d+\.\d+\.\d+)\b/);
-    return match?.[1] ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function semverGte(actual: string | null, minimum: string): boolean {
-  if (!actual) return false;
-  const actualParts = actual.split(".").map((part) => Number(part));
-  const minimumParts = minimum.split(".").map((part) => Number(part));
-
-  for (let i = 0; i < 3; i += 1) {
-    const actualPart = actualParts[i] ?? 0;
-    const minimumPart = minimumParts[i] ?? 0;
-    if (actualPart > minimumPart) return true;
-    if (actualPart < minimumPart) return false;
-  }
-
-  return true;
-}
+// ── Prompt config ─────────────────────────────────────────────────────────────
 
 type PromptConfig = {
   prompts?: {

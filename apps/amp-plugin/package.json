@@ -1,0 +1,33 @@
+{
+  "name": "@plannotator/amp-plugin",
+  "version": "0.19.24",
+  "type": "module",
+  "description": "Plannotator plugin for Amp - interactive code review and annotation via the Amp command palette",
+  "author": "backnotprop",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/backnotprop/plannotator.git",
+    "directory": "apps/amp-plugin"
+  },
+  "homepage": "https://github.com/backnotprop/plannotator",
+  "bugs": {
+    "url": "https://github.com/backnotprop/plannotator/issues"
+  },
+  "keywords": ["amp", "amp-plugin", "plannotator", "code-review", "annotate", "ai-agent", "coding-agent"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "bun build plannotator.ts --outfile dist/plannotator.ts --target bun --format esm --external @ampcode/plugin",
+    "prepublishOnly": "bun run build"
+  },
+  "dependencies": {},
+  "peerDependencies": {
+    "bun": ">=1.0.0"
+  },
+  "devDependencies": {
+    "@plannotator/shared": "workspace:*"
+  }
+}

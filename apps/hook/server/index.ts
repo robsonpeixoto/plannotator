@@ -474,10 +474,10 @@ function getPluginOrigin(request: Partial<PluginBaseRequest>): PluginClientOrigi
   const originIndex = args.indexOf("--origin");
   const originArg = originIndex >= 0 ? args[originIndex + 1] : undefined;
   const origin = request.origin || originArg || detectedOrigin;
-  if (origin !== "opencode" && origin !== "pi") {
+  if (origin !== "opencode" && origin !== "pi" && origin !== "amp") {
     emitPluginError(
       "invalid-origin",
-      `Plugin origin must be "opencode" or "pi"; got ${String(origin || "")}`,
+      `Plugin origin must be "opencode", "pi", or "amp"; got ${String(origin || "")}`,
     );
   }
   return origin;

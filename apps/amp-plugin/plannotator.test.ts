@@ -4,20 +4,32 @@ import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
+  buildBaseRequest,
   buildEnv,
-  buildPlannotatorEnv,
   extractTextFromThreadMessage,
   findFirstPositionalArg,
   formatAnnotationFeedback,
   getPlannotatorDataDir,
-  getPlannotatorCommandCandidates,
+  handleAnnotateResult,
+  handleReviewResult,
   isNoActionFeedback,
-  parseAnnotateDecision,
   parseReviewTargetInput,
   resolveAmpWorkspaceRoot,
   resolveCwd,
+  runAnnotate,
+  runAnnotateLast,
+  runReview,
   splitCommandArgs,
+  type BinaryClientDeps,
 } from "./plannotator";
+import { type EnsurePlannotatorBinaryResult } from "../../packages/shared/plugin-client";
+import {
+  createPluginErrorResponse,
+  createPluginSuccessResponse,
+  type PluginAnnotateResult,
+  type PluginResponse,
+  type PluginReviewResult,
+} from "../../packages/shared/plugin-protocol";
 
 describe("Amp Plannotator plugin helpers", () => {
   test("extracts visible assistant text blocks", () => {
@@ -33,12 +45,6 @@ describe("Amp Plannotator plugin helpers", () => {
     });
 
     expect(text).toBe("First paragraph.\n\nSecond paragraph.");
-  });
-
-  test("parses structured annotate decisions", () => {
-    expect(parseAnnotateDecision('{"decision":"approved"}')).toEqual({ decision: "approved" });
-    expect(parseAnnotateDecision("")).toEqual({ decision: "dismissed" });
-    expect(parseAnnotateDecision("plain feedback")).toBeNull();
   });
 
   test("wraps actionable annotation feedback for Amp thread append", () => {
@@ -204,12 +210,31 @@ describe("Amp Plannotator plugin helpers", () => {
     }
   });
 
-  test("ready-file mode preserves Plannotator browser opening", () => {
-    expect(buildPlannotatorEnv("/repo", "/tmp/ready.jsonl")).toEqual({
-      PLANNOTATOR_ORIGIN: "amp",
-      PLANNOTATOR_CWD: "/repo",
-      PLANNOTATOR_READY_FILE: "/tmp/ready.jsonl",
-    });
+  test("populates the shared base request with amp origin and sharing fields", () => {
+    const originalShare = process.env.PLANNOTATOR_SHARE;
+    const originalShareUrl = process.env.PLANNOTATOR_SHARE_URL;
+    const originalPasteUrl = process.env.PLANNOTATOR_PASTE_URL;
+
+    try {
+      delete process.env.PLANNOTATOR_SHARE;
+      process.env.PLANNOTATOR_SHARE_URL = "https://share.example.com";
+      process.env.PLANNOTATOR_PASTE_URL = "https://paste.example.com";
+
+      expect(buildBaseRequest("/repo")).toEqual({
+        origin: "amp",
+        cwd: "/repo",
+        sharingEnabled: true,
+        shareBaseUrl: "https://share.example.com",
+        pasteApiUrl: "https://paste.example.com",
+      });
+
+      process.env.PLANNOTATOR_SHARE = "disabled";
+      expect(buildBaseRequest("/repo").sharingEnabled).toBe(false);
+    } finally {
+      restoreEnv("PLANNOTATOR_SHARE", originalShare);
+      restoreEnv("PLANNOTATOR_SHARE_URL", originalShareUrl);
+      restoreEnv("PLANNOTATOR_PASTE_URL", originalPasteUrl);
+    }
   });
 
   test("does not let Amp's Bun mode leak into the Plannotator binary", () => {
@@ -236,52 +261,203 @@ describe("Amp Plannotator plugin helpers", () => {
       restoreEnv("PLANNOTATOR_DATA_DIR", originalDataDir);
     }
   });
+});
 
-  test("prefers installer binary paths before PATH lookup", () => {
-    expect(
-      getPlannotatorCommandCandidates({
-        home: "/Users/alice",
-        pluginDir: "/Users/alice/.config/amp/plugins",
-        platform: "darwin",
-        env: {},
-      }),
-    ).toEqual([
-      ["/Users/alice/.local/bin/plannotator"],
-      ["plannotator"],
-    ]);
+describe("Amp Plannotator binary-client wiring", () => {
+  test("review sends origin amp, joined args, and appends prompt feedback", async () => {
+    const captured: { binaryPath?: string; request?: Record<string, unknown> } = {};
+    const appended: string[] = [];
+    const notes: string[] = [];
 
-    expect(
-      getPlannotatorCommandCandidates({
-        home: String.raw`C:\Users\alice`,
-        pluginDir: String.raw`C:\Users\alice\.config\amp\plugins`,
-        platform: "win32",
-        env: {
-          LOCALAPPDATA: String.raw`C:\Users\alice\AppData\Local`,
-          USERPROFILE: String.raw`C:\Users\alice`,
-        },
-      }),
-    ).toEqual([
-      [String.raw`C:\Users\alice\AppData\Local/plannotator/plannotator.exe`],
-      [String.raw`C:\Users\alice/.local/bin/plannotator.exe`],
-      ["plannotator"],
+    const deps: BinaryClientDeps = {
+      ensurePlannotatorBinary: () => okBinary(),
+      runPluginReview: async (binaryPath, request) => {
+        captured.binaryPath = binaryPath;
+        captured.request = request as unknown as Record<string, unknown>;
+        return success<PluginReviewResult>({ approved: true, prompt: "LGTM, ship it." });
+      },
+    };
+
+    await runReview(fakeAmp(), fakeCtx({ appended, notes }), "--git https://example.com/pr/1", deps);
+
+    expect(captured.binaryPath).toBe("/bin/plannotator");
+    expect(captured.request).toMatchObject({
+      origin: "amp",
+      args: "--git https://example.com/pr/1",
+      sharingEnabled: expect.any(Boolean),
+    });
+    expect(appended).toEqual(["LGTM, ship it."]);
+    expect(notes).toEqual([]);
+  });
+
+  test("review falls back to feedback when no prompt is present", async () => {
+    const appended: string[] = [];
+    const deps: BinaryClientDeps = {
+      ensurePlannotatorBinary: () => okBinary(),
+      runPluginReview: async () =>
+        success<PluginReviewResult>({ approved: false, feedback: "Please fix this bug." }),
+    };
+
+    await runReview(fakeAmp(), fakeCtx({ appended }), "", deps);
+
+    expect(appended).toEqual(["Please fix this bug."]);
+  });
+
+  test("review exit is a no-op (no append)", async () => {
+    const appended: string[] = [];
+    const deps: BinaryClientDeps = {
+      ensurePlannotatorBinary: () => okBinary(),
+      runPluginReview: async () => success<PluginReviewResult>({ approved: false, exit: true }),
+    };
+
+    await runReview(fakeAmp(), fakeCtx({ appended }), "", deps);
+
+    expect(appended).toEqual([]);
+  });
+
+  test("annotate sends origin amp and the raw target string", async () => {
+    const captured: { request?: Record<string, unknown> } = {};
+    const appended: string[] = [];
+    const deps: BinaryClientDeps = {
+      ensurePlannotatorBinary: () => okBinary(),
+      runPluginAnnotate: async (_binaryPath, request) => {
+        captured.request = request as unknown as Record<string, unknown>;
+        return success<PluginAnnotateResult>({ feedback: "", prompt: "Address the annotations." });
+      },
+    };
+
+    await runAnnotate(fakeAmp(), fakeCtx({ appended }), "docs/plan.md --gate", deps);
+
+    expect(captured.request).toMatchObject({ origin: "amp", args: "docs/plan.md --gate" });
+    expect(appended).toEqual(["Address the annotations."]);
+  });
+
+  test("annotate-last sends origin amp, mode, markdown, and last-message file path", async () => {
+    const captured: { request?: Record<string, unknown> } = {};
+    const appended: string[] = [];
+    const deps: BinaryClientDeps = {
+      ensurePlannotatorBinary: () => okBinary(),
+      runPluginAnnotate: async (_binaryPath, request) => {
+        captured.request = request as unknown as Record<string, unknown>;
+        return success<PluginAnnotateResult>({ feedback: "", prompt: "Revise the message." });
+      },
+    };
+
+    await runAnnotateLast(fakeAmp(), fakeCtx({ appended }), "assistant message body", deps);
+
+    expect(captured.request).toMatchObject({
+      origin: "amp",
+      mode: "annotate-last",
+      markdown: "assistant message body",
+      filePath: "last-message",
+    });
+    expect(appended).toEqual(["Revise the message."]);
+  });
+
+  test("annotate approved is a no-op (no append)", async () => {
+    const appended: string[] = [];
+    const notes: string[] = [];
+
+    await handleAnnotateResult(
+      fakeCtx({ appended, notes }),
+      success<PluginAnnotateResult>({ feedback: "", approved: true }),
+      { kind: "message" },
+    );
+
+    expect(appended).toEqual([]);
+    expect(notes).toEqual(["Annotation session closed."]);
+  });
+
+  test("annotate falls back to template-wrapped feedback when no prompt", async () => {
+    const appended: string[] = [];
+
+    await handleAnnotateResult(
+      fakeCtx({ appended }),
+      success<PluginAnnotateResult>({ feedback: "Comment: tighten this section." }),
+      { kind: "file", filePath: "docs/plan.md" },
+    );
+
+    expect(appended).toEqual([
+      "# Markdown Annotations\n\nFile: docs/plan.md\n\nComment: tighten this section.\n\nPlease address the annotation feedback above.",
     ]);
   });
 
-  test("allows explicit PLANNOTATOR_BIN override", () => {
-    expect(
-      getPlannotatorCommandCandidates({
-        home: "/Users/alice",
-        pluginDir: "/Users/alice/.config/amp/plugins",
-        platform: "darwin",
-        env: { PLANNOTATOR_BIN: "/opt/plannotator/bin/plannotator" },
+  test("review error surfaces the plugin error message", async () => {
+    const notes: string[] = [];
+
+    await handleReviewResult(
+      fakeCtx({ notes }),
+      error("plugin-command-failed", "daemon unavailable"),
+    );
+
+    expect(notes[0]).toContain("daemon unavailable");
+  });
+
+  test("missing binary notifies an install hint", async () => {
+    const notes: string[] = [];
+    const deps: BinaryClientDeps = {
+      ensurePlannotatorBinary: () => ({
+        ok: false,
+        code: "missing-binary",
+        message: "The Plannotator binary was not found and automatic installation is disabled.",
+        checked: [],
       }),
-    ).toEqual([
-      ["/opt/plannotator/bin/plannotator"],
-      ["/Users/alice/.local/bin/plannotator"],
-      ["plannotator"],
-    ]);
+    };
+
+    await runReview(fakeAmp(), fakeCtx({ notes }), "", deps);
+
+    expect(notes[0]).toContain("Plannotator review failed.");
+    expect(notes[0]).toContain("https://plannotator.ai/docs/getting-started/installation/");
   });
 });
+
+function okBinary(): EnsurePlannotatorBinaryResult {
+  return {
+    ok: true,
+    path: "/bin/plannotator",
+    source: "path",
+    installed: false,
+    capabilities: {
+      protocol: "plannotator-plugin",
+      protocolVersion: 2,
+      minClientVersion: 1,
+      features: ["capabilities", "plan-review", "code-review", "annotate", "annotate-last"],
+      daemonReady: true,
+    },
+  };
+}
+
+function success<T extends PluginReviewResult | PluginAnnotateResult>(result: T): PluginResponse<T> {
+  return createPluginSuccessResponse(result) as PluginResponse<T>;
+}
+
+function error(code: string, message: string): PluginResponse<never> {
+  return createPluginErrorResponse(code, message) as PluginResponse<never>;
+}
+
+function fakeAmp(): Parameters<typeof runReview>[0] {
+  return {
+    logger: { log: () => {} },
+  } as unknown as Parameters<typeof runReview>[0];
+}
+
+function fakeCtx(
+  sinks: { appended?: string[]; notes?: string[] },
+): Parameters<typeof handleReviewResult>[0] {
+  return {
+    $: async () => ({ exitCode: 0, stdout: `${process.cwd()}\n`, stderr: "" }),
+    ui: {
+      notify: async (message: string) => {
+        sinks.notes?.push(message);
+      },
+    },
+    thread: {
+      append: async (entries: Array<{ type: string; content: string }>) => {
+        for (const entry of entries) sinks.appended?.push(entry.content);
+      },
+    },
+  } as unknown as Parameters<typeof handleReviewResult>[0];
+}
 
 function restoreEnv(key: string, value: string | undefined): void {
   if (value === undefined) {

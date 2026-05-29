@@ -21,5 +21,5 @@ done
 # agents.ts — only the Origin type is needed (transitive dep of plugin-protocol)
 cat > generated/agents.ts << 'STUB'
 // @generated — stub. Only the Origin type is needed by plugin-protocol.ts.
-export type Origin = "claude-code" | "opencode" | "copilot-cli" | "pi" | "codex" | "gemini-cli";
+export type Origin = "claude-code" | "amp" | "droid" | "opencode" | "copilot-cli" | "pi" | "codex" | "gemini-cli";
 STUB

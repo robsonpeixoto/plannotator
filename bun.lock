@@ -23,6 +23,16 @@
         "typescript": "~5.8.2",
       },
     },
+    "apps/amp-plugin": {
+      "name": "@plannotator/amp-plugin",
+      "version": "0.19.24",
+      "devDependencies": {
+        "@plannotator/shared": "workspace:*",
+      },
+      "peerDependencies": {
+        "bun": ">=1.0.0",
+      },
+    },
     "apps/frontend": {
       "name": "@plannotator/frontend",
       "version": "0.0.1",
@@ -770,6 +780,8 @@
     "@pkgjs/parseargs": ["@pkgjs/parseargs@0.11.0", "", {}, "sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg=="],
 
     "@plannotator/ai": ["@plannotator/ai@workspace:packages/ai"],
+
+    "@plannotator/amp-plugin": ["@plannotator/amp-plugin@workspace:apps/amp-plugin"],
 
     "@plannotator/code-review": ["@plannotator/code-review@workspace:packages/plannotator-code-review"],
 

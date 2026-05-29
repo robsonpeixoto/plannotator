@@ -198,21 +198,17 @@ See [Plannotator Meets Pi](/blog/plannotator-meets-pi) for the full walkthrough.
 
 Plannotator's Amp integration is currently commands-only. It adds command-palette actions for code review, file annotation, and annotating Amp's latest assistant message.
 
-Install the CLI first:
-
-```bash
-curl -fsSL https://plannotator.ai/install.sh | bash
-```
-
-Then install the Amp plugin:
+Install the Amp plugin (a single self-contained file):
 
 ```bash
 mkdir -p ~/.config/amp/plugins
-curl -fsSL https://raw.githubusercontent.com/backnotprop/plannotator/main/apps/amp-plugin/plannotator.ts \
+curl -fsSL https://raw.githubusercontent.com/backnotprop/plannotator/main/apps/amp-plugin/dist/plannotator.ts \
   -o ~/.config/amp/plugins/plannotator.ts
 ```
 
-Restart Amp or run `plugins: reload` from the command palette.
+Restart Amp or run `plugins: reload` from the command palette. The plugin
+auto-installs the `plannotator` CLI on first use if it isn't already present;
+to install it ahead of time, run `curl -fsSL https://plannotator.ai/install.sh | bash`.
 
 This adds:
 

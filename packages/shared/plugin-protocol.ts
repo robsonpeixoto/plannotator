@@ -13,7 +13,7 @@ export const PLANNOTATOR_PLUGIN_FEATURES = [
 ] as const;
 
 export type PluginFeature = (typeof PLANNOTATOR_PLUGIN_FEATURES)[number];
-export type PluginClientOrigin = Extract<Origin, "opencode" | "pi">;
+export type PluginClientOrigin = Extract<Origin, "opencode" | "pi" | "amp">;
 export type PluginRequestOrigin = Origin;
 export type PluginSessionMode = "plan" | "review" | "annotate" | "goal-setup";
 
