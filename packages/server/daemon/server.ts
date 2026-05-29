@@ -529,7 +529,8 @@ export function createDaemonFetchHandler(options: DaemonServerOptions): DaemonFe
         }
         const name = typeof body.name === "string" && body.name.length > 0 ? body.name : undefined;
         try {
-          const entry = addProject(body.cwd, name);
+          // Manual add = an explicit project-root declaration (supersedes git boundaries).
+          const entry = addProject(body.cwd, name, {}, true);
           return json({ ok: true, project: entry }, { status: 201 });
         } catch (err) {
           return json(

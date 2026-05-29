@@ -29,9 +29,9 @@ import { generateSlug } from "../storage";
 import { createAnnotateSession } from "../annotate";
 import { createGoalSetupSession } from "../goal-setup";
 import { createReviewSession } from "../review";
-import { detectProjectName } from "../project";
 import { createRemoteShareNotice } from "../share-url";
-import { addProject } from "./project-registry";
+import { registerResolvedProject } from "./project-registry";
+import { resolveProject } from "./project-resolver";
 import {
   gitRuntime,
   prepareLocalReviewDiff,
@@ -581,17 +581,23 @@ export function createDaemonSessionFactory(options: DaemonSessionFactoryOptions)
     context: DaemonFetchContext,
   ): Promise<DaemonSessionRecord> {
     const request = createRequest.request;
+    // `cwd` is the OPERATIONAL directory the agent launched in (used for git ops,
+    // file reads, diffs). It is NOT the project — agents `cd` around and may launch
+    // from a subdir or worktree. Resolve the owning project (git root / declared
+    // workspace root) for attribution, keeping `cwd` operational. See
+    // goals/architecture/decisions/cwd-worktree-collection-contract.md.
     const cwd = getRequestCwd(request);
-    const project = (await detectProjectName(cwd)) ?? "_unknown";
-    let branch: string | undefined;
-    try {
-      const { execSync } = await import("child_process");
-      const b = execSync("git rev-parse --abbrev-ref HEAD", { cwd, encoding: "utf-8" }).trim();
-      if (b && b !== "HEAD") branch = b;
-    } catch {}
+    const resolved = resolveProject(cwd);
+    const project = resolved.projectName || "_unknown";
+    const projectCwd = resolved.projectCwd;
+    const worktree = resolved.worktree;
+    const branch = worktree?.branch;
+    // matchKey discriminator: the operational scope (worktree/sub-repo, else project
+    // root) so distinct worktrees of one project don't collide on reactivation.
+    const scopeKey = worktree?.cwd ?? projectCwd;
     try {
       const tmp = tmpdir();
-      if (!cwd.startsWith(tmp)) addProject(cwd, project);
+      if (!cwd.startsWith(tmp)) registerResolvedProject(resolved);
     } catch {}
     const id = createDaemonSessionId();
     const url = makeSessionUrl(context.endpoint.baseUrl, id);
@@ -607,7 +613,7 @@ export function createDaemonSessionFactory(options: DaemonSessionFactoryOptions)
 
     if (request.action === "plan") {
       const plan = await readPlanRequest(request, cwd);
-      const matchKey = `plan:${project}:${generateSlug(plan)}`;
+      const matchKey = `plan:${scopeKey}:${generateSlug(plan)}`;
 
       const existing = findMatchingSession(context.store, matchKey);
       if (existing && existing.session.updateContent) {
@@ -642,6 +648,8 @@ export function createDaemonSessionFactory(options: DaemonSessionFactoryOptions)
         url,
         project,
         cwd,
+        projectCwd,
+        ...(worktree && { worktree }),
         label: branch ? `plugin-plan-${request.origin}-${project}-${branch}` : `plugin-plan-${request.origin}-${project}`,
         origin: request.origin,
         matchKey,
@@ -660,9 +668,9 @@ export function createDaemonSessionFactory(options: DaemonSessionFactoryOptions)
       const isSingleFile = input.mode === "annotate";
       const isFolder = input.mode === "annotate-folder";
       const matchKey = isSingleFile
-        ? `annotate:${project}:${input.filePath}`
+        ? `annotate:${scopeKey}:${input.filePath}`
         : isFolder && input.folderPath
-          ? `annotate:${project}:folder:${input.folderPath}`
+          ? `annotate:${scopeKey}:folder:${input.folderPath}`
           : undefined;
 
       if (matchKey) {
@@ -697,6 +705,8 @@ export function createDaemonSessionFactory(options: DaemonSessionFactoryOptions)
         url,
         project,
         cwd,
+        projectCwd,
+        ...(worktree && { worktree }),
         label: input.folderPath
           ? `plugin-annotate-${request.origin}-${basename(input.folderPath)}${branch ? `-${branch}` : ""}`
           : `plugin-annotate-${request.origin}-${input.mode === "annotate-last" ? "last" : basename(input.filePath)}${branch ? `-${branch}` : ""}`,
@@ -716,7 +726,7 @@ export function createDaemonSessionFactory(options: DaemonSessionFactoryOptions)
       const input = await prepareReviewInput(request, cwd);
       const reviewMatchKey = input.prMetadata
         ? `review:${input.prMetadata.url}`
-        : branch ? `review:${project}:${branch}` : `review:${project}`;
+        : branch ? `review:${scopeKey}:${branch}` : `review:${scopeKey}`;
 
       const existingReview = findMatchingSession(context.store, reviewMatchKey, RESUBMIT_OR_IDLE_STATUSES);
       if (existingReview && existingReview.session.updateContent) {
@@ -770,6 +780,8 @@ export function createDaemonSessionFactory(options: DaemonSessionFactoryOptions)
         url,
         project,
         cwd,
+        projectCwd,
+        ...(worktree && { worktree }),
         label: input.prMetadata
           ? `plugin-${getMRLabel(input.prMetadata).toLowerCase()}-review-${getDisplayRepo(input.prMetadata)}${getMRNumberLabel(input.prMetadata)}`
           : branch ? `plugin-review-${request.origin}-${project}-${branch}` : `plugin-review-${request.origin}-${project}`,
@@ -804,6 +816,8 @@ export function createDaemonSessionFactory(options: DaemonSessionFactoryOptions)
         url,
         project,
         cwd,
+        projectCwd,
+        ...(worktree && { worktree }),
         label: branch ? `goal-setup-${bundle.stage}-${request.goalSlug || project}-${branch}` : `goal-setup-${bundle.stage}-${request.goalSlug || project}`,
         origin: request.origin,
         ttlMs,
