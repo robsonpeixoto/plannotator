@@ -2,6 +2,7 @@
 
 /* Theme files — each defines .theme-{name} (dark) and .theme-{name}.light */
 @import "./themes/plannotator.css";
+@import "./themes/simple.css";
 @import "./themes/claude-plus.css";
 @import "./themes/soft-pop.css";
 @import "./themes/adwaita.css";
