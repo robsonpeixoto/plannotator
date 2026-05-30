@@ -9,6 +9,9 @@ import { PlanHeaderMenu } from '@plannotator/ui/components/PlanHeaderMenu';
 import type { CallbackConfig } from '@plannotator/ui/utils/callback';
 import type { UIPreferences } from '@plannotator/ui/utils/uiPreferences';
 import { SparklesIcon } from '@plannotator/ui/components/SparklesIcon';
+import { Button } from '@plannotator/ui/components/ui/button';
+import { cn } from '@plannotator/ui/lib/utils';
+import { PanelRight } from 'lucide-react';
 
 interface AppHeaderProps {
   // Slot for external content (e.g., shell sidebar trigger)
@@ -249,36 +252,30 @@ export const AppHeader = React.memo<AppHeaderProps>(({
 
         {/* Annotations panel toggle */}
         {!goalSetupMode && (
-          <button
+          <Button
+            variant="ghost"
+            size="xs"
             onClick={onAnnotationPanelToggle}
-            className={`p-1.5 rounded-md text-xs font-medium transition-all ${
-              isPanelOpen
-                ? 'bg-primary/15 text-primary'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-            }`}
             title={isPanelOpen ? 'Hide annotations' : 'Show annotations'}
+            className={cn('p-1.5', isPanelOpen ? 'bg-primary/15 text-primary hover:bg-primary/15 hover:text-primary' : 'text-muted-foreground hover:bg-muted hover:text-foreground')}
           >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
-            </svg>
-          </button>
+            <PanelRight className="size-4" />
+          </Button>
         )}
         {!goalSetupMode && aiAvailable && (
-          <button
+          <Button
+            variant="ghost"
+            size="xs"
             onClick={onAIChatToggle}
-            className={`relative p-1.5 rounded-md text-xs font-medium transition-all ${
-              isAIChatOpen
-                ? 'bg-primary/15 text-primary'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-            }`}
             title={isAIChatOpen ? 'Hide AI chat' : 'Show AI chat'}
             aria-label={isAIChatOpen ? 'Hide AI chat' : 'Show AI chat'}
+            className={cn('relative p-1.5', isAIChatOpen ? 'bg-primary/15 text-primary hover:bg-primary/15 hover:text-primary' : 'text-muted-foreground hover:bg-muted hover:text-foreground')}
           >
             <SparklesIcon className="w-4 h-4" />
             {aiHasMessages && !isAIChatOpen && (
               <span className="absolute top-0 right-0 w-1.5 h-1.5 rounded-full bg-primary" />
             )}
-          </button>
+          </Button>
         )}
 
         {/* Settings dialog (controlled, button hidden — opened from PlanHeaderMenu) */}
