@@ -266,6 +266,18 @@ export const SETTINGS = {
     fromServer: undefined,
     toServer: undefined,
   },
+  /** Grid pattern behind the plan document. Optional, default OFF. Cookie-only. */
+  gridEnabled: {
+    defaultValue: false as boolean,
+    fromCookie: () => {
+      const v = storage.getItem('plannotator-grid-enabled');
+      return v === 'true' ? true : v === 'false' ? false : undefined;
+    },
+    toCookie: (v: boolean) => storage.setItem('plannotator-grid-enabled', String(v)),
+    serverKey: undefined,
+    fromServer: undefined,
+    toServer: undefined,
+  },
 } satisfies Record<string, SettingDef<any>>;
 
 export type SettingsMap = typeof SETTINGS;

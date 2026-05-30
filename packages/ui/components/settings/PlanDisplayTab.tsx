@@ -15,6 +15,7 @@ interface PlanDisplayTabProps {
 
 export const PlanDisplayTab: React.FC<PlanDisplayTabProps> = ({ onUIPreferencesChange }) => {
   const taterMode = useConfigValue('taterMode');
+  const gridEnabled = useConfigValue('gridEnabled');
   const [uiPrefs, setUiPrefs] = useState<UIPreferences>(() => getUIPreferences());
 
   const handleChange = (updates: Partial<UIPreferences>) => {
@@ -43,6 +44,15 @@ export const PlanDisplayTab: React.FC<PlanDisplayTabProps> = ({ onUIPreferencesC
         onChange={(v) => handleChange({ stickyActionsEnabled: v })}
         label="Sticky Actions"
         description="Keep action buttons visible while scrolling"
+      />
+
+      <div className="border-t border-border" />
+
+      <ToggleSwitch
+        checked={gridEnabled}
+        onChange={(v) => configStore.getState().set('gridEnabled', v)}
+        label="Grid Background"
+        description="Show the grid pattern behind the plan document"
       />
 
       <div className="border-t border-border" />
