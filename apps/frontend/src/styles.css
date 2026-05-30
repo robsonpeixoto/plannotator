@@ -128,28 +128,12 @@
   }
 }
 
-/* Custom scrollbar — overrides theme.css with rounder thumbs and ring hover color */
+/* Native scrollbars — standard properties only (thin + themed, cross-browser).
+ * No `::-webkit-scrollbar { width }` override on purpose: the old 6px rail was the
+ * "can't grab the scrollbar" bug (#354). Standard `thin` stays grabbable. */
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
-}
-
-*::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-*::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-*::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 9999px;
-}
-
-*::-webkit-scrollbar-thumb:hover {
-  background: var(--ring);
 }
 
 /* Grid background — Plannotator legacy view */
