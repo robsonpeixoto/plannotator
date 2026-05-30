@@ -2068,6 +2068,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
                   <Viewer
                     key={linkedDocHook.isActive ? `doc:${linkedDocHook.filepath}` : 'plan'}
                     ref={viewerRef}
+                    gridEnabled={gridEnabled}
                     blocks={blocks}
                     markdown={markdown}
                     frontmatter={frontmatter}
