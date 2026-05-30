@@ -69,12 +69,38 @@ but organize them differently and make different always-on/optional calls:
 
 ---
 
-## 4. Decisions needed before implementation
+## 4. Decisions — LOCKED (2026-05-30)
 
-1. **"Custom toolbar" = the custom scrollbar?** Strong inference: yes — drop `overlayscrollbars` for native OS scrollbars (T3), matching the prototype. Confirm.
-2. **Grid default:** OFF by default (prototype) — accepted? It's a visible change for existing users.
-3. **View modes (T6):** keep production's chrome-hiding wide/focus, or the prototype's simpler width-only cycle?
-4. **Scope of the in-document reorg (T4):** full move of metadata + toolstrip into the article now, or phase it (scrollbar + grid first, layout reorg second)?
+1. **"Custom toolbar" = the custom scrollbar.** → Drop `overlayscrollbars` for native OS scrollbars (T3). Native does what we want; we got carried away with the custom lib. **Regression watchlist (§7) is mandatory.**
+2. **Grid → optional toggle, default OFF** (T1/T2). Visible change accepted.
+3. **View modes → restructured into a width selector + a separate focus mode** (see §6). Replaces the current "Wide | Focus" label toggle.
+4. **Phase it** (T-sequencing): **Phase 1** = native scrollbars + optional grid toggle. **Phase 2** = in-document layout reorg (metadata + toolstrip into the article) + the width-selector/focus restructure (§6).
+
+---
+
+## 5b. (renumbered below)
+
+## 6. View-mode / width restructure (Phase 2 feature spec)
+
+Today there are **two** overlapping width systems, and the settings one is **broken**:
+- `wideModeType` (`wide`/`focus`) — the above-card "Wide | Focus" toggle (App.tsx:200) that *reshapes* layout.
+- A settings `planWidth` (`PLAN_WIDTH_OPTIONS` / `uiPreferences`) → `planMaxWidth` (App.tsx:1746) — **changing it in Settings currently does nothing (bug to fix).**
+
+**Target design:**
+- **Width selector** — a **dropdown/popover next to the Copy-plan button** (in the toolstrip action cluster), NOT the label toggle. Four tiers:
+  - **Compact** — narrow reading width
+  - **Default** — inherit the prototype's default (~**860px**)
+  - **Wide** — wider capped width (~1040px)
+  - **Ultrawide** (new) — full width / no max-width cap (= production's current `wide` behavior)
+- **Focus** — a **separate** mode (distraction-free: hide sidebars/panel), orthogonal to the width tier. Operates at whatever width is selected.
+- **Fix the broken settings width** so the tier actually applies (and stays in sync with the dropdown).
+- Default tier = **Default (860)**.
+
+## 7. Scrollbar regression watchlist (Phase 1, mandatory)
+
+Going native must not regress these known issues:
+- **#354 "Can't grab scrollbar"** — the sidebar **resize-handle hit-area overlapped the scrollbar**, making the scrollbar ungrabbable (broke twice). The prototype avoids this with a **gutter** between sidebar and content for the drag handle. → When wiring native scroll + the new sidebar resize, ensure the resize handle's hit area does **not** sit over the scrollbar edge. Test with a mouse directly on the scrollbar.
+- **#540 "Safari scroll jumps to top"** — diff view scroll position reset to top each scroll (fixed once; watch for re-introduction when the scroll container changes). Test scrolling + the plan-diff view in Safari.
 
 ## 5. Out of scope / production wins (keep, reskin only)
 
