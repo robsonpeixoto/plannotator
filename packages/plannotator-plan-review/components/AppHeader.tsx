@@ -11,7 +11,7 @@ import type { UIPreferences } from '@plannotator/ui/utils/uiPreferences';
 import { SparklesIcon } from '@plannotator/ui/components/SparklesIcon';
 import { Button } from '@plannotator/ui/components/ui/button';
 import { cn } from '@plannotator/ui/lib/utils';
-import { PanelRight } from 'lucide-react';
+import { PanelRightClose, PanelRightOpen } from 'lucide-react';
 
 interface AppHeaderProps {
   // Slot for external content (e.g., shell sidebar trigger)
@@ -259,7 +259,7 @@ export const AppHeader = React.memo<AppHeaderProps>(({
             title={isPanelOpen ? 'Hide annotations' : 'Show annotations'}
             className={cn('p-1.5', isPanelOpen ? 'bg-primary/15 text-primary hover:bg-primary/15 hover:text-primary' : 'text-muted-foreground hover:bg-muted hover:text-foreground')}
           >
-            <PanelRight className="size-4" />
+            {isPanelOpen ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />}
           </Button>
         )}
         {!goalSetupMode && aiAvailable && (

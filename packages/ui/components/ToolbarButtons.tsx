@@ -1,7 +1,7 @@
 import React from 'react';
 import { Button } from './ui/button';
 import { cn } from '../lib/utils';
-import { MessageSquare } from 'lucide-react';
+import { Send, Check } from 'lucide-react';
 
 interface FeedbackButtonProps {
   onClick: () => void;
@@ -27,18 +27,14 @@ export const FeedbackButton: React.FC<FeedbackButtonProps> = ({
   muted = false,
 }) => (
   <Button
-    variant="accent"
+    variant="outline"
     size="xs"
     onClick={onClick}
     disabled={disabled}
     title={title}
-    className={cn(
-      muted
-        ? 'opacity-50 cursor-not-allowed bg-accent/10 text-accent/50 border-transparent hover:bg-accent/10'
-        : disabled && 'opacity-50 cursor-not-allowed bg-muted text-muted-foreground border-transparent hover:bg-muted',
-    )}
+    iconLeft={<Send className="size-3.5" />}
+    className={cn(muted && 'opacity-50 cursor-not-allowed')}
   >
-    <MessageSquare className="md:hidden" />
     {shortLabel ? (
       <>
         <span className="hidden md:inline lg:hidden">{isLoading ? (shortLoadingLabel ?? loadingLabel) : shortLabel}</span>
@@ -81,6 +77,7 @@ export const ApproveButton: React.FC<ApproveButtonProps> = ({
     onClick={onClick}
     disabled={disabled}
     title={title}
+    iconLeft={<Check className="size-3.5" />}
     className={cn(
       muted && 'opacity-40 cursor-not-allowed bg-muted text-muted-foreground hover:bg-muted',
       disabled && !muted && 'bg-muted text-muted-foreground hover:bg-muted',

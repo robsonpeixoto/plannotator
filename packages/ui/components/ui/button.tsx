@@ -9,8 +9,9 @@ import { cn } from "../../lib/utils";
  * embedded plan/review apps). cva variants + sizes, optional `iconLeft`/`iconRight`
  * slots, and `asChild` for polymorphism.
  *
- * `success` (solid, token-driven green) and `accent` (soft accent tint) cover the
- * plan app's Approve / Feedback actions.
+ * `success` (solid, token-driven green) covers the plan app's Approve action; the
+ * Feedback action uses `outline`. (No `accent` variant — `text-accent` on `bg-accent`
+ * has no contrast in neutral-accent themes.)
  */
 const buttonVariants = cva(
   "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-[13px] font-medium transition-[color,background-color,box-shadow] disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
@@ -21,8 +22,6 @@ const buttonVariants = cva(
         destructive:
           "bg-destructive text-white shadow-xs hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40",
         success: "bg-success text-success-foreground shadow-xs hover:bg-success/90",
-        accent:
-          "border border-accent/30 bg-accent/15 text-accent shadow-xs hover:bg-accent/25",
         outline:
           "border border-input bg-background shadow-xs hover:bg-accent hover:text-accent-foreground",
         secondary: "bg-secondary text-secondary-foreground shadow-xs hover:bg-secondary/80",

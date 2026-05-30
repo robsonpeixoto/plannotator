@@ -90,7 +90,7 @@
   --ring: oklch(0.871 0.006 286.286);
 
   --success: oklch(0.62 0.194 149.214);
-  --success-foreground: oklch(0.141 0.005 285.823);
+  --success-foreground: oklch(0.985 0 0);
   --warning: oklch(0.55 0.18 85);
   --warning-foreground: oklch(0.141 0.005 285.823);
 
