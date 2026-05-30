@@ -53,9 +53,20 @@ export interface GitProbe {
   branch(cwd: string): string | undefined;
 }
 
-/** Strip trailing slashes (but keep root "/"). */
+/**
+ * Normalize a path for comparison: convert backslashes to forward slashes, then
+ * strip trailing slashes (but keep root "/").
+ *
+ * Every path the resolver compares (input cwd, declared roots, git toplevel) flows
+ * through here, so normalizing separators once makes `isAtOrUnder` correct on Windows
+ * too — without this, a declared root `C:\work\group` never prefix-matches a session
+ * at `C:\work\group\repo` because the ancestor check appends `/`. Git's
+ * `--show-toplevel` already emits forward slashes on every platform, so after this
+ * the three sources agree. (A literal backslash in a POSIX directory name is not a
+ * real project root, so collapsing it is an acceptable trade.)
+ */
 function norm(p: string): string {
-  const trimmed = p.replace(/\/+$/, "");
+  const trimmed = p.replace(/\\/g, "/").replace(/\/+$/, "");
   return trimmed === "" ? "/" : trimmed;
 }
 

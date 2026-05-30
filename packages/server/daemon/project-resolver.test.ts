@@ -131,3 +131,26 @@ describe("resolveProjectCore — declared roots (workspace of repos, VC for mygr
     expect(r.worktree).toBeUndefined();
   });
 });
+
+describe("resolveProjectCore — Windows path separators (#822 review)", () => {
+  test("declared workspace root matches a nested repo despite backslash paths", () => {
+    // Declared root + cwd arrive with backslashes; git's --show-toplevel emits
+    // forward slashes. norm() reconciles them so the ancestor check still matches.
+    const declared: DeclaredRoot[] = [{ cwd: "C:\\work\\group", name: "group" }];
+    const git = fakeGit({
+      toplevels: { "C:/work/group/repo": "C:/work/group/repo" },
+      branches: { "C:/work/group/repo": "main" },
+    });
+    const r = resolveProjectCore("C:\\work\\group\\repo", declared, git);
+    expect(r.projectCwd).toBe("C:/work/group"); // declared root wins, not the repo
+    expect(r.projectName).toBe("group");
+    expect(r.worktree).toEqual({ cwd: "C:/work/group/repo", branch: "main" });
+  });
+
+  test("plain Windows repo → repo root with a clean basename", () => {
+    const git = fakeGit({ toplevels: { "C:/work/app": "C:/work/app" } });
+    const r = resolveProjectCore("C:\\work\\app", noDeclared, git);
+    expect(r.projectCwd).toBe("C:/work/app");
+    expect(r.projectName).toBe("app");
+  });
+});
