@@ -8,10 +8,19 @@ Tracked issues and feature requests for the daemon frontend app.
 
 **Confirmed bug. Real fix NOT yet landed (#824 did not fix it).**
 
-The CLI's `waitForResult` long-poll (`packages/server/daemon/client.ts`) inherits Bun's
-**hard 300-second default `fetch` timeout**. If the user takes longer than 5 minutes to act,
-the client fetch throws `TimeoutError: The operation timed out.`, the `plannotator
-review|plan|annotate` command exits, and the agent never receives the decision.
+The **CLI process** — the foreground `plannotator review|plan|annotate` invocation the user (or
+agent) runs in their terminal — calls `waitForResult` (`packages/server/daemon/client.ts`),
+which inherits Bun's **hard 300-second default `fetch` timeout**. If the user takes longer than
+5 minutes to act, that fetch throws `TimeoutError: The operation timed out.`, **the CLI process
+exits**, and the agent never receives the decision through the command.
+
+**Scope — what does and does NOT die:**
+- **CLI process (the typed `plannotator …` command):** dies at 5 min. ← the only thing broken.
+- **Daemon (the long-running background server):** unaffected — keeps running.
+- **The session itself:** unaffected — stays alive in the daemon ("sessions never die"), and
+  since #824 Part B the CLI's exit no longer cancels it, so the **browser tab keeps working past
+  5 minutes**. The user can still review/submit; only the command's automatic hand-back of the
+  result to the calling agent is lost.
 
 - **Proven:** a no-option `fetch` against a never-responding server (server idle timeout
   disabled, as the daemon does via `server.timeout(req, 0)`) throws after **exactly 300s** with
