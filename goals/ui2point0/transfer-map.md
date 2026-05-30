@@ -109,6 +109,11 @@ These need **no architectural change** — just the new tokens/primitives/icons 
 
 ## 8. Open decisions (need your call before/within the rewrite)
 
+> **RESOLVED 2026-05-30 — see `decisions.md`.** Locked: keep dark-first (#1), keep all ~50
+> themes (#2), keep our project→worktree sidebar + no Cmd+K (#3), keep highlight.js (#4),
+> keep our production-grade markdown (#6), rebuild primitives in `packages/ui` not vendored
+> (#7). Code-review engine (#5) deferred. The original list is retained below for context.
+
 1. **Dark-mode polarity** — flip production to light-default `:root` + `.dark` (match prototype, invasive across ~50 themes), or keep dark-default and adapt the prototype's tokens to it?
 2. **Theme count** — keep the ~50-theme system (re-tokenized with surface layers etc.), or collapse to the single diffkit theme as the prototype implies?
 3. **Session navigation** — offcanvas (prototype) vs the project→worktree tree + peek-rail (production #822). And how to merge type/status grouping with project/worktree grouping.
