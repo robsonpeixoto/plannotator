@@ -108,4 +108,29 @@ Annotation engine (web-highlighter, pinpoint, toolbar), plan-diff word-level sys
 
 ---
 
+## 8. HTML rendering — FACT (full-width, never a card, never a grid)
+
+**HTML content (`HtmlViewer`, the `--render-html` / `.html` path) is ALWAYS full view** — edge-to-edge,
+fills the content area, no centered card, no padding/max-width, **no grid ever**. It does NOT get the
+plan document's card/grid/embedded treatment. This is settled — do not apply the `gridEnabled`
+flat-vs-floating-card logic to HTML.
+
+**Reference implementation (already built in the `feat/collab` worktree — tied to the multi-doc rooms
+feature there; NOT yet on `feat/ui2-plan`):**
+- A `fullViewport` mode on `HtmlViewer` toggles three things:
+  1. Container → `h-full flex flex-col` (instead of a constrained `maxWidth` wrapper).
+  2. iframe wrapper → `flex-1` (instead of `bg-card rounded-xl shadow-xl` — i.e. no card).
+  3. iframe height → `100%` (instead of a measured `${iframeHeight}px`).
+  4. Action bar (global-comment button) → hidden entirely.
+- The parent layout (`App.tsx`) does the heavy lifting via an `isHtmlSurface` flag: switches off the
+  padding/centering/grid (`min-h-full items-center px-… py-…` → `h-full flex flex-col`) and passes
+  `fullViewport` + `maxWidth={null}` to `HtmlViewer`. Sticky-actions bar and wide-mode toggle are hidden.
+
+**Status / sequencing:** the `feat/ui2-plan` branch still has the OLD card-based `HtmlViewer`
+(`html-viewer/HtmlViewer.tsx:234`, `shadow-xl`). The full-view behavior arrives via the `feat/collab`
+merge — **deferred, do not re-implement here** (would duplicate/conflict). When that lands, HTML is full
+view and this scope's grid/embed work simply doesn't touch it.
+
+---
+
 *Reads cited inline. 2026-05-30.*
