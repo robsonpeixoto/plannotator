@@ -49,10 +49,24 @@ Most of this is **already done**. The map corrected our assumptions:
 ## Adversarial fixes folded in (must-do)
 1. Add the **identity re-tag** unit (U+). 2. U7 **keeps** the aiProviders fetch. 3. U6 must actually `setActiveTab(default)` on open + read `bootstrap.session.mode`. 4. Tighten the dialog's `aiProviders` type to include `models?`. 5. U11 also repoints `App.tsx:256` (`useSidebar(getUIPreferences().tocEnabled)`) + the `lastAppliedTocEnabledRef`. 6. U12 is a **hard gate** before any new server-keyed setting.
 
-## Open decisions (need product/scope calls — see chat)
-1. **Portal settings** (gates U9/U10): build a daemon-free portal settings dialog, or drop portal settings entirely?
-2. **Scope**: monolith deletion + close the live seams (U1–U12 + identity fix), and **defer** the optional stray-setting migration (U13)? Or do the full config-store consolidation now?
-3. **Section-visibility UX** (U6): default to the relevant tab but keep all sections visible, vs. hide the non-active mode's section.
+## Decisions — LOCKED (2026-05-30)
+
+1. **ONE universal dialog, no separate portal dialog.** `AppSettingsDialog` becomes *the* settings UI
+   everywhere (frontend, portal, standalone). → **U9 is replaced**: move the dialog to a shared home
+   (`packages/ui`) and make it **degrade gracefully without a daemon** — hide the daemon-only controls
+   (AI providers, Hooks, git name, legacy-tab-mode) when no session/daemon is present; everything else
+   works cookie-only. The portal renders this same dialog.
+2. **The config store routes itself** (U12, elevated to core): server-keyed settings sync to the daemon
+   when connected, cookie-only when not — one deterministic, daemon-aware pattern. No window-global
+   ambiguity. This is the mechanism that makes #1 work.
+3. **FULL migration** (U13 in scope): every setting moves to the config store as the source of truth;
+   delete all the stray cookie util read/write surfaces. Keep `agentSwitch` + `aiProvider` as their own
+   *clean* specialized modules (they're single-source already, not legacy) behind the store where it
+   helps. `quickLabels` wide blast radius handled carefully (move all `getQuickLabels()` callers).
+4. **Section UX:** default to the active session's relevant tab; keep all sections visible.
+
+Execution: **sequential, verified phases** (not a parallel swarm — units chain + share `Settings.tsx`).
+Verify each: typecheck + `build:hook` + `build:portal`.
 
 ---
 
