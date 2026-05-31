@@ -4,7 +4,7 @@ import type { Agent } from '@plannotator/ui/hooks/useAgents';
 import type { UpdateInfo } from '@plannotator/ui/hooks/useUpdateCheck';
 import { FeedbackButton, ApproveButton, ExitButton } from '@plannotator/ui/components/ToolbarButtons';
 import { ApproveDropdown } from '@plannotator/ui/components/ApproveDropdown';
-import { Settings } from '@plannotator/ui/components/Settings';
+import { SettingsDialog } from '@plannotator/ui/components/settings/SettingsDialog';
 import { PlanHeaderMenu } from '@plannotator/ui/components/PlanHeaderMenu';
 import type { CallbackConfig } from '@plannotator/ui/utils/callback';
 import type { UIPreferences } from '@plannotator/ui/utils/uiPreferences';
@@ -278,20 +278,17 @@ export const AppHeader = React.memo<AppHeaderProps>(({
           </Button>
         )}
 
-        {/* Settings dialog (controlled, button hidden — opened from PlanHeaderMenu) */}
+        {/* Standalone settings dialog (portal / non-embedded plan editor).
+            When embedded in the frontend shell, externalOpenSettings is set so
+            skipBuiltInSettings is true and the gear routes to the shell's
+            daemon-backed dialog instead — this one is not mounted. */}
         {!skipBuiltInSettings && (
-          <div className="hidden">
-            <Settings
-              taterMode={taterMode}
-              onTaterModeChange={onTaterModeChange}
-              onIdentityChange={onIdentityChange}
-              origin={origin}
-              onUIPreferencesChange={onUIPreferencesChange}
-              externalOpen={mobileSettingsOpen}
-              onExternalClose={onCloseSettings}
-              gitUser={gitUser}
-            />
-          </div>
+          <SettingsDialog
+            open={mobileSettingsOpen}
+            onOpenChange={(next) => (next ? onOpenSettings() : onCloseSettings())}
+            sessionContext={null}
+            daemonAvailable={false}
+          />
         )}
 
         <PlanHeaderMenu
