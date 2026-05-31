@@ -10,7 +10,9 @@ import { PlanDisplayTab } from "@plannotator/ui/components/settings/PlanDisplayT
 import { SavingTab } from "@plannotator/ui/components/settings/SavingTab";
 import { LabelsTab } from "@plannotator/ui/components/settings/LabelsTab";
 import { FilesTab } from "@plannotator/ui/components/settings/FilesTab";
-import { GitTab, ReviewDisplayTab, CommentsTab } from "@plannotator/ui/components/Settings";
+import { GitTab } from "@plannotator/ui/components/settings/ReviewGitTab";
+import { ReviewDisplayTab } from "@plannotator/ui/components/settings/ReviewDisplayTab";
+import { CommentsTab } from "@plannotator/ui/components/settings/CommentsTab";
 import { ThemeTab } from "@plannotator/ui/components/ThemeTab";
 import { KeyboardShortcuts } from "@plannotator/ui/components/KeyboardShortcuts";
 import { AISettingsTab } from "@plannotator/ui/components/AISettingsTab";
