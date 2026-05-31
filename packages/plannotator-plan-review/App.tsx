@@ -1346,6 +1346,18 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
     ));
   }, []);
 
+  // Re-tag annotations whenever identity changes anywhere (monolith Settings or
+  // the global AppSettingsDialog), via the decoupled identity-change event.
+  useEffect(() => {
+    const onIdentityChange = (e: Event) => {
+      const detail = (e as CustomEvent<{ oldId: string; newId: string }>).detail;
+      if (!detail) return;
+      handleIdentityChange(detail.oldId, detail.newId);
+    };
+    window.addEventListener('plannotator:identity-change', onIdentityChange);
+    return () => window.removeEventListener('plannotator:identity-change', onIdentityChange);
+  }, [handleIdentityChange]);
+
   const handleAddGlobalAttachment = (image: ImageAttachment) => {
     setGlobalAttachments(prev => [...prev, image]);
   };

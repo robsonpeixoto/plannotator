@@ -3,7 +3,6 @@ import { type Origin, getAgentName } from '@plannotator/shared/agents';
 import { ThemeProvider, useTheme } from '@plannotator/ui/components/ThemeProvider';
 import { TooltipProvider } from '@plannotator/ui/components/Tooltip';
 import { ConfirmDialog } from '@plannotator/ui/components/ConfirmDialog';
-import { Settings } from '@plannotator/ui/components/Settings';
 import { FeedbackButton, ApproveButton, ExitButton } from '@plannotator/ui/components/ToolbarButtons';
 import { AgentReviewActions } from './components/AgentReviewActions';
 import { useUpdateCheck } from '@plannotator/ui/hooks/useUpdateCheck';
@@ -177,7 +176,6 @@ const ReviewApp: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; 
   const [allFilesVisibleFile, setAllFilesVisibleFile] = useState<string | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
   const [showWorktreeDialog, setShowWorktreeDialog] = useState(false);
-  const [openSettingsMenu, setOpenSettingsMenu] = useState(false);
   const [showNoAnnotationsDialog, setShowNoAnnotationsDialog] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const diffStyle = useConfigValue('diffStyle');
@@ -220,7 +218,6 @@ const ReviewApp: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; 
   const [viewedFiles, setViewedFiles] = useState<Set<string>>(new Set());
   const [hideViewedFiles, setHideViewedFiles] = useState(false);
   const [origin, setOrigin] = useState<Origin | null>(null);
-  const [gitUser, setGitUser] = useState<string | undefined>();
   const [isWSL, setIsWSL] = useState(false);
   const [legacyTabMode, setLegacyTabMode] = useState(false);
   const [diffType, setDiffType] = useState<string>('uncommitted');
@@ -875,7 +872,6 @@ const ReviewApp: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; 
         lastDecision?: 'approved' | 'feedback' | 'exited' | null;
       }) => {
         configStore.getState().init(data.serverConfig);
-        setGitUser(data.serverConfig?.gitUser);
         if ((data.serverConfig as { legacyTabMode?: boolean } | undefined)?.legacyTabMode) setLegacyTabMode(true);
         const apiFiles = parseDiffToFiles(data.rawPatch);
         setDiffData({
@@ -1094,6 +1090,18 @@ const ReviewApp: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; 
       ),
     );
   }, [storeApi]);
+
+  // Re-tag annotations whenever identity changes anywhere (monolith Settings or
+  // the global AppSettingsDialog), via the decoupled identity-change event.
+  useEffect(() => {
+    const onIdentityChange = (e: Event) => {
+      const detail = (e as CustomEvent<{ oldId: string; newId: string }>).detail;
+      if (!detail) return;
+      handleIdentityChange(detail.oldId, detail.newId);
+    };
+    window.addEventListener('plannotator:identity-change', onIdentityChange);
+    return () => window.removeEventListener('plannotator:identity-change', onIdentityChange);
+  }, [handleIdentityChange]);
 
   // Switch file in the dedicated center diff panel.
   const handleFilePreview = useCallback((index: number) => {
@@ -2171,7 +2179,7 @@ const ReviewApp: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; 
             <div className="w-px h-5 bg-border/50 mx-1 hidden md:block" />
 
             <ReviewHeaderMenu
-              onOpenSettings={() => { if (externalOpenSettings) { externalOpenSettings(); return; } setOpenSettingsMenu(true); }}
+              onOpenSettings={() => externalOpenSettings?.()}
               onOpenExport={() => setShowExportModal(true)}
               onToggleFileTree={() => setIsFileTreeOpen(prev => !prev)}
               onToggleSidebar={() => reviewSidebar.isOpen ? reviewSidebar.close() : reviewSidebar.open()}
@@ -2445,22 +2453,6 @@ const ReviewApp: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; 
                 </button>
               </div>
             </div>
-          </div>
-        )}
-
-        {!externalOpenSettings && (
-          <div className="hidden" aria-hidden="true">
-            <Settings
-              taterMode={false}
-              onTaterModeChange={() => {}}
-              onIdentityChange={handleIdentityChange}
-              origin={origin}
-              mode="review"
-              aiProviders={aiProviders}
-              gitUser={gitUser}
-              externalOpen={openSettingsMenu}
-              onExternalClose={() => setOpenSettingsMenu(false)}
-            />
           </div>
         )}
 

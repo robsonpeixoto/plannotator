@@ -73,18 +73,30 @@ export function AppSettingsDialog() {
     return () => window.removeEventListener("keydown", handler);
   }, [themePreview, setOpen]);
 
-  // Force re-mount of tab content when dialog opens to ensure fresh state
-  const [mountKey, setMountKey] = useState(0);
-  useEffect(() => {
-    if (open) setMountKey((k) => k + 1);
-  }, [open]);
-
-  // Detect origin from the active session (if any)
+  // Detect origin/mode from the active session (if any)
   const activeSessionId = useAppStore((s) => s.activeSessionId);
   const visitedSessions = useAppStore((s) => s.visitedSessions);
   const activeOrigin = activeSessionId
     ? ((visitedSessions[activeSessionId]?.bootstrap.session.origin as string | undefined) ?? null)
     : null;
+  const activeMode = activeSessionId
+    ? (visitedSessions[activeSessionId]?.bootstrap?.session?.mode ?? null)
+    : null;
+
+  // Force re-mount of tab content when dialog opens to ensure fresh state, and
+  // default the active tab to the section matching the active session's mode.
+  const [mountKey, setMountKey] = useState(0);
+  useEffect(() => {
+    if (!open) return;
+    setMountKey((k) => k + 1);
+    setActiveTab(
+      activeMode === "review"
+        ? "review-display"
+        : activeMode === "plan" || activeMode === "annotate" || activeMode === "goal-setup"
+          ? "plan-general"
+          : "general",
+    );
+  }, [open, activeMode]);
 
   // Fetch git user and config from daemon on open
   const [gitUser, setGitUser] = useState<string | undefined>();
@@ -118,7 +130,12 @@ export function AppSettingsDialog() {
 
   // AI provider state — fetched once when dialog opens
   const [aiProviders, setAiProviders] = useState<
-    Array<{ id: string; name: string; capabilities: Record<string, boolean> }>
+    Array<{
+      id: string;
+      name: string;
+      capabilities: Record<string, boolean>;
+      models?: Array<{ id: string; label: string; default?: boolean }>;
+    }>
   >([]);
   const [aiProviderId, setAiProviderId] = useState<string | null>(
     () => getAIProviderSettings().providerId,
