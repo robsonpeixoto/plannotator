@@ -52,6 +52,15 @@
     transform;
 }
 
+/* The in-plan resize-handle collapse button reveals on hover of its *whole*
+   adjacent sidebar, not just the thin handle. Pure CSS via :has() on the shared
+   panes container — no JS, no state, no layout wrappers. The button still also
+   reveals on direct handle hover (group-hover, in ResizeHandle). */
+[data-plan-panes]:has([data-plan-sidebar="left"]:hover) [data-collapse="left"],
+[data-plan-panes]:has([data-plan-sidebar="right"]:hover) [data-collapse="right"] {
+  opacity: 1;
+}
+
 /* While drag-resizing the app sidebar, kill the width transition so the panel
    tracks the cursor 1:1 instead of trailing the 200ms ease. The gap spacer and
    the fixed container are the direct children of [data-slot="sidebar"]. */

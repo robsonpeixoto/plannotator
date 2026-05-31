@@ -110,6 +110,7 @@ export const AnnotationPanel: React.FC<PanelProps> = ({
   const panel = (
     <aside
       data-annotation-panel="true"
+      data-plan-sidebar="right"
       className={`border-l border-border/50 bg-card flex flex-col flex-shrink-0 ${
         isMobile ? 'fixed top-12 bottom-0 right-0 z-[60] w-full max-w-sm shadow-2xl bg-card' : ''
       }`}
@@ -119,7 +120,7 @@ export const AnnotationPanel: React.FC<PanelProps> = ({
       <div className="border-b border-border/50">
         <div className="flex h-10 items-center justify-between px-3">
           <div className="flex items-center gap-2">
-            <h2 className="text-xs font-semibold text-foreground">
+            <h2 className="text-xs font-medium text-foreground">
               Annotations
             </h2>
             {totalCount > 0 && (

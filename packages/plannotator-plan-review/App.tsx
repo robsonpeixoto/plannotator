@@ -1883,7 +1883,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
 
         {/* Main Content */}
         <ScrollViewportContext.Provider value={scrollViewport}>
-        <div data-print-region="content" className={`flex-1 flex overflow-hidden relative z-0 ${isResizing ? 'select-none' : ''}`}>
+        <div data-print-region="content" data-plan-panes className={`flex-1 flex overflow-hidden relative z-0 ${isResizing ? 'select-none' : ''}`}>
           {/* Tater sprites — inside content wrapper so z-0 stacking context applies */}
           {taterMode && <TaterSpriteRunning />}
           {/* Left Sidebar: collapsed tab flags (when sidebar is closed) */}
@@ -1934,7 +1934,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
                 fetchingVersion={planDiff.fetchingVersion}
                 onFetchVersions={planDiff.fetchVersions}
               />
-              <ResizeHandle {...tocResize.handleProps} className="hidden lg:block" side="left" />
+              <ResizeHandle {...tocResize.handleProps} className="hidden lg:block" side="left" onCollapse={sidebar.close} />
             </>
           )}
 
@@ -2119,7 +2119,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
           </OverlayScrollArea>
 
           {/* Resize Handle */}
-          {isPanelOpen && wideModeType === null && !goalSetupMode && (rightSidebarTab === 'annotations' || canUseAI) && <ResizeHandle {...panelResize.handleProps} className="hidden md:block" side="right" />}
+          {isPanelOpen && wideModeType === null && !goalSetupMode && (rightSidebarTab === 'annotations' || canUseAI) && <ResizeHandle {...panelResize.handleProps} className="hidden md:block" side="right" onCollapse={() => setIsPanelOpen(false)} />}
 
           {/* Annotation Panel */}
           <AnnotationPanel
@@ -2149,6 +2149,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
           {isPanelOpen && rightSidebarTab === 'ai' && wideModeType === null && !goalSetupMode && canUseAI && (
             <aside
               data-annotation-panel="true"
+              data-plan-sidebar="right"
               className={`border-l border-border/50 bg-card flex flex-col flex-shrink-0 ${
                 isMobile ? 'fixed top-12 bottom-0 right-0 z-[60] w-full max-w-sm shadow-2xl bg-card' : ''
               }`}

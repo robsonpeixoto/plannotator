@@ -3,6 +3,10 @@ import type { ResizeHandleProps as BaseProps } from '../hooks/useResizablePanel'
 
 interface Props extends BaseProps {
   className?: string;
+  /** When provided, renders a hover-reveal collapse button centered on the
+   *  handle (prototype's gutter affordance). Chevron direction follows `side`:
+   *  a left sidebar collapses leftward, a right sidebar rightward. */
+  onCollapse?: () => void;
   /**
    * Which panel this handle resizes, not which side of the boundary it's on.
    *
@@ -31,6 +35,7 @@ export const ResizeHandle: React.FC<Props> = ({
   style,
   className,
   side,
+  onCollapse,
 }) => (
   <div
     className={`relative w-0 cursor-col-resize flex-shrink-0 group z-10${className ? ` ${className}` : ''}`}
@@ -53,5 +58,29 @@ export const ResizeHandle: React.FC<Props> = ({
       onPointerDown={onPointerDown}
       onDoubleClick={onDoubleClick}
     />
+    {/* Hover-reveal collapse button, centered on the handle. stopPropagation on
+        pointerdown so clicking it never starts a drag. Hidden mid-drag. */}
+    {onCollapse && !isDragging && (
+      <button
+        type="button"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          onCollapse();
+        }}
+        title="Collapse sidebar"
+        aria-label="Collapse sidebar"
+        data-collapse={side}
+        className="absolute top-1/2 left-1/2 z-20 flex h-6 w-4 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-sm bg-surface-1 text-muted-foreground/60 opacity-0 ring-1 ring-border/40 transition-opacity hover:text-foreground group-hover:opacity-100"
+      >
+        <svg className="size-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d={side === 'right' ? 'M9 5l7 7-7 7' : 'M15 19l-7-7 7-7'}
+          />
+        </svg>
+      </button>
+    )}
   </div>
 );
