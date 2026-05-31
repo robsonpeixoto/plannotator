@@ -128,13 +128,7 @@
   }
 }
 
-/* Native scrollbars — standard properties only (thin + themed, cross-browser).
- * No `::-webkit-scrollbar { width }` override on purpose: the old 6px rail was the
- * "can't grab the scrollbar" bug (#354). Standard `thin` stays grabbable. */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
-}
+/* Native scrollbars are defined once in @plannotator/ui/theme.css (imported above). */
 
 /* Grid background — Plannotator legacy view */
 .grid-pattern {

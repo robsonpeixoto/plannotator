@@ -233,13 +233,12 @@ body {
 /* Scrollbars                                                         */
 /* ------------------------------------------------------------------ */
 /*
- * Primary scroll containers are wrapped in <OverlayScrollArea> and styled
- * through the `os-theme-plannotator` theme below. Unwrapped surfaces
- * (third-party libraries, not-yet-migrated panels, small inline scrollers)
- * fall back to a thin native scrollbar.
+ * All scroll containers use NATIVE OS scrollbars (the overlayscrollbars library
+ * was removed). <OverlayScrollArea> is now a thin native wrapper; everything is
+ * styled by the standard rule below.
  *
- * Transitions are color + width only — transform/opacity were removed
- * globally in abc952f to prevent scroll jank. DO NOT re-add them here.
+ * Note: transform/opacity were removed from global transitions in abc952f to
+ * prevent scroll jank. DO NOT re-add them.
  */
 
 /* Native OS scrollbars — thin + themed via the standard properties (cross-browser:
@@ -408,8 +407,7 @@ html:not(.transitions-ready) * {
 body:has([data-popout="true"]) [data-annotation-panel="true"],
 body:has([data-popout="true"]) [data-sticky-header-lane="true"],
 body:has([data-popout="true"]) [data-app-header="true"],
-body:has([data-popout="true"]) [data-sidebar-tabs="true"],
-body:has([data-popout="true"]) .os-scrollbar {
+body:has([data-popout="true"]) [data-sidebar-tabs="true"] {
   z-index: -1;
 }
 
