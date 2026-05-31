@@ -40,21 +40,23 @@
   background-size: 24px 24px;
 }
 
-/* Sidebar — override theme.css global transition-property so left/right/width animate */
-[data-slot="sidebar-wrapper"],
-[data-slot="sidebar-wrapper"] * {
+/* Global app sidebar ONLY — override theme.css's color-only global transition so
+   the sidebar's own left/right/width animate on open/close. Scoped to
+   [data-slot="sidebar"] (NOT the -wrapper, which is the whole app): if it reaches
+   main content or the in-plan panels, every element animates its width and
+   drag-resizing any panel trails 150ms behind the cursor. */
+[data-slot="sidebar"],
+[data-slot="sidebar"] * {
   transition-property:
     color, background-color, border-color, box-shadow, left, right, width, height, padding, opacity,
     transform;
 }
 
-/* Sidebar panel — smooth open/close, disabled during drag resize */
-[data-sidebar-panel] {
-  transition: width 200ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-body[style*="user-select"] [data-sidebar-panel] {
-  transition: none;
+/* While drag-resizing the app sidebar, kill the width transition so the panel
+   tracks the cursor 1:1 instead of trailing the 200ms ease. The gap spacer and
+   the fixed container are the direct children of [data-slot="sidebar"]. */
+html[data-sidebar-resizing] [data-slot="sidebar"] > div {
+  transition: none !important;
 }
 
 /* Slide-in animation — frontend shell surfaces */

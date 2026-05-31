@@ -26,28 +26,31 @@ interface Props extends BaseProps {
 
 export const ResizeHandle: React.FC<Props> = ({
   isDragging,
-  onMouseDown,
-  onTouchStart,
+  onPointerDown,
   onDoubleClick,
+  style,
   className,
   side,
 }) => (
   <div
     className={`relative w-0 cursor-col-resize flex-shrink-0 group z-10${className ? ` ${className}` : ''}`}
   >
-    {/* Visible track — 4px wide, centered on the zero-width layout box */}
+    {/* Visible track — 4px wide, centered on the zero-width layout box,
+        invisible until hover/drag. */}
     <div className={`absolute inset-y-0 -left-0.5 -right-0.5 transition-colors ${
-      isDragging ? 'bg-primary/50' : 'group-hover:bg-border'
+      isDragging ? 'bg-transparent' : 'group-hover:bg-border'
     }`} />
-    {/* Wider touch area — must never have zero width (see `side` docs). */}
+    {/* Wider grab/touch zone — must never have zero width (see `side` docs).
+        Pointer events + setPointerCapture live here; touch-action:none (from
+        style) stops touch drags from scroll-hijacking. */}
     <div
       className={`absolute inset-y-0 ${
         side === 'left' ? '-right-2 -left-1' :
         side === 'right' ? '-right-3 left-0' :
         '-inset-x-2'
       }`}
-      onMouseDown={onMouseDown}
-      onTouchStart={onTouchStart}
+      style={style}
+      onPointerDown={onPointerDown}
       onDoubleClick={onDoubleClick}
     />
   </div>

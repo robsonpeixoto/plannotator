@@ -19,7 +19,7 @@ interface SidebarContainerProps {
   activeTab: SidebarTab;
   onTabChange: (tab: SidebarTab) => void;
   onClose: () => void;
-  width: number;
+  width: number | string;
   // TOC props
   blocks: Block[];
   annotations: Annotation[];
@@ -86,7 +86,7 @@ export const SidebarContainer: React.FC<SidebarContainerProps> = ({
 }) => {
   return (
     <aside
-      className="hidden lg:flex flex-col sticky top-12 h-[calc(100vh-3rem)] flex-shrink-0 bg-card border-r border-border"
+      className="group/sidebar hidden lg:flex flex-col sticky top-12 h-[calc(100vh-3rem)] flex-shrink-0 bg-card border-r border-border"
       style={{ width }}
     >
       {/* Tab bar */}
@@ -159,7 +159,7 @@ export const SidebarContainer: React.FC<SidebarContainerProps> = ({
         <div className="flex-1 min-w-0" />
         <button
           onClick={onClose}
-          className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
+          className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted shrink-0 opacity-0 transition-[color,background-color,opacity] group-hover/sidebar:opacity-100 focus-visible:opacity-100"
           title="Close sidebar"
         >
           <svg
