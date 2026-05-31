@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Link, useMatchRoute } from "@tanstack/react-router";
 import * as Collapsible from "@radix-ui/react-collapsible";
-import { ChevronRight, Folder, Moon, Plus, Settings, Sun } from "lucide-react";
+import { Folder, FolderOpen, Moon, Plus, Settings, Sun } from "lucide-react";
 import { TaterSpriteSidebar } from "@plannotator/ui/components/sprites";
 import { useActiveProjectCwd } from "./useActiveProjectCwd";
 import { ROW, pad } from "./row-style";
@@ -31,10 +31,6 @@ import { formatSessionLabel, getSessionModeMeta } from "../../shared/session-met
 /** Non-terminal session statuses — the only ones the sidebar surfaces. */
 const LIVE_STATUSES = new Set<string>(["active", "idle", "awaiting-resubmission"]);
 
-const CHEVRON =
-  "size-3.5 shrink-0 text-muted-foreground/45 transition-transform duration-150 " +
-  "group-data-[state=open]/disc:rotate-90";
-
 function SessionRow({
   session,
   depth,
@@ -61,8 +57,6 @@ function SessionRow({
       )}
       title={formatSessionLabel(session.label, session.mode)}
     >
-      {/* spacer where a chevron would sit, so the mode icon aligns under sibling icons */}
-      <span className="size-3.5 shrink-0" aria-hidden />
       <Icon className="size-3 shrink-0 text-muted-foreground/55" />
       <span className="truncate">{formatSessionLabel(session.label, session.mode)}</span>
     </Link>
@@ -85,10 +79,9 @@ function WorktreeNode({
     <Collapsible.Root open={!collapsed} onOpenChange={() => toggle(worktree.cwd)}>
       <Collapsible.Trigger
         style={pad(depth)}
-        className={cn(ROW, "group/disc text-sidebar-foreground/70")}
+        className={cn(ROW, "text-sidebar-foreground/70")}
         title={worktree.name}
       >
-        <ChevronRight className={CHEVRON} />
         <span className="flex size-3.5 shrink-0 items-center justify-center text-[11px] font-bold text-muted-foreground/55">W</span>
         <span className="truncate">{worktree.name}</span>
         <span className="ml-auto pl-1 text-[10px] tabular-nums text-muted-foreground/45">
@@ -128,11 +121,14 @@ function ProjectNode({
     <Collapsible.Root open={isOpen} onOpenChange={onToggle}>
       <Collapsible.Trigger
         style={pad(0)}
-        className={cn(ROW, "group/disc font-medium text-sidebar-foreground/90")}
+        className={cn(ROW, "font-medium text-sidebar-foreground/90")}
         title={project.name}
       >
-        <ChevronRight className={CHEVRON} />
-        <Folder className="size-3.5 shrink-0 text-muted-foreground/60" />
+        {isOpen ? (
+          <FolderOpen className="size-3.5 shrink-0 text-muted-foreground/60" />
+        ) : (
+          <Folder className="size-3.5 shrink-0 text-muted-foreground/60" />
+        )}
         <span className="truncate">{project.name}</span>
         {liveCount > 0 && (
           <span className="ml-auto pl-1 text-[10px] tabular-nums text-muted-foreground/45">
