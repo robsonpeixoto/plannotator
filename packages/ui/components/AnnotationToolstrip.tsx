@@ -1,7 +1,8 @@
 import React, { useState, useRef, useLayoutEffect, useEffect } from 'react';
 import type { EditorMode, InputMethod } from '../types';
-import { TaterSpritePullup } from './TaterSpritePullup';
-import { MousePointer2, Crosshair, Pencil, MessageSquare, Trash2, Zap } from 'lucide-react';
+import { TaterSpritePullup } from './sprites';
+import { MousePointer2, Crosshair, Pencil, MessageSquare, Zap } from 'lucide-react';
+import { RedlineIcon } from './icons/RedlineIcon';
 
 interface AnnotationToolstripProps {
   inputMethod: InputMethod;
@@ -107,7 +108,7 @@ export const AnnotationToolstrip: React.FC<AnnotationToolstripProps> = ({
             compact={compact}
             iconOnly={iconOnly}
             icon={
-              <Trash2 className="w-3.5 h-3.5 shrink-0" />
+              <RedlineIcon className="w-3.5 h-3.5 shrink-0" />
             }
           />
           <ToolstripButton
@@ -217,8 +218,8 @@ const colorStyles = {
     inactive: 'text-muted-foreground hover:text-foreground',
   },
   accent: {
-    active: 'bg-card text-blue-500 shadow-sm',
-    hover: 'text-accent/80 bg-accent/8',
+    active: 'bg-card text-annotation-comment shadow-sm',
+    hover: 'text-annotation-comment/80 bg-annotation-comment/8',
     inactive: 'text-muted-foreground hover:text-foreground',
   },
   destructive: {

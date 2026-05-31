@@ -9,17 +9,15 @@ import { OverlayScrollArea } from './OverlayScrollArea';
 import { Button } from './ui/button';
 import { cn } from '../lib/utils';
 
-// Card type-word colors. Comment and Deletion use production's semantic tokens
-// (accent / destructive) so the card label stays consistent with the
-// in-document highlight CSS (.comment = amber/accent, .deletion = destructive)
-// in packages/plannotator-plan-review/index.css. Global comments have NO
-// in-document highlight class, so there is nothing to stay consistent with —
-// and `text-secondary` is a near-white SURFACE token that is illegible on the
-// surface-1 card in light themes. Use the prototype's fixed-hue text-purple-500,
-// which is legible on both light and dark card backgrounds.
+// Card type-word colors. Deletion uses `destructive` (reliably red on every
+// theme, matching the in-document .deletion highlight). Comment uses the
+// `annotation-comment` token, which defaults to each theme's --accent (so it
+// stays consistent with the .comment highlight) but is overridden to a legible
+// blue in neutral themes whose accent is a low-contrast gray (e.g. "simple").
+// Global has no in-document highlight, so it uses a fixed legible purple.
 const TYPE_COLOR: Record<AnnotationType, string> = {
   [AnnotationType.DELETION]: 'text-destructive',
-  [AnnotationType.COMMENT]: 'text-accent',
+  [AnnotationType.COMMENT]: 'text-annotation-comment',
   [AnnotationType.GLOBAL_COMMENT]: 'text-purple-500',
 };
 
@@ -54,7 +52,7 @@ interface PanelProps {
   onDeleteCodeAnnotation?: (id: string) => void;
   onEditCodeAnnotation?: (id: string, updates: Partial<CodeAnnotation>) => void;
   sharingEnabled?: boolean;
-  width?: number;
+  width?: number | string;
   editorAnnotations?: EditorAnnotation[];
   onDeleteEditorAnnotation?: (id: string) => void;
   onClose?: () => void;
