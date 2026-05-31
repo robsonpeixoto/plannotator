@@ -1,8 +1,3 @@
-import { storage } from './storage';
-
-const STORAGE_KEY_TOC = 'plannotator-toc-enabled';
-const STORAGE_KEY_STICKY_ACTIONS = 'plannotator-sticky-actions-enabled';
-
 export type PlanWidth = 'compact' | 'default' | 'wide' | 'ultrawide';
 
 const PLAN_WIDTHS: readonly PlanWidth[] = ['compact', 'default', 'wide', 'ultrawide'];
@@ -17,20 +12,3 @@ export const PLAN_WIDTH_OPTIONS: { id: PlanWidth; label: string; px: number | nu
   { id: 'wide', label: 'Wide', px: 1280, hint: 'For large monitors. Best with diagrams and wide code.' },
   { id: 'ultrawide', label: 'Ultrawide', px: null, hint: 'Full width — fills the entire content area. For ultrawide monitors.' },
 ];
-
-export interface UIPreferences {
-  tocEnabled: boolean;
-  stickyActionsEnabled: boolean;
-}
-
-export function getUIPreferences(): UIPreferences {
-  return {
-    tocEnabled: storage.getItem(STORAGE_KEY_TOC) !== 'false',
-    stickyActionsEnabled: storage.getItem(STORAGE_KEY_STICKY_ACTIONS) !== 'false',
-  };
-}
-
-export function saveUIPreferences(prefs: UIPreferences): void {
-  storage.setItem(STORAGE_KEY_TOC, String(prefs.tocEnabled));
-  storage.setItem(STORAGE_KEY_STICKY_ACTIONS, String(prefs.stickyActionsEnabled));
-}

@@ -7,7 +7,6 @@ import { ApproveDropdown } from '@plannotator/ui/components/ApproveDropdown';
 import { SettingsDialog } from '@plannotator/ui/components/settings/SettingsDialog';
 import { PlanHeaderMenu } from '@plannotator/ui/components/PlanHeaderMenu';
 import type { CallbackConfig } from '@plannotator/ui/utils/callback';
-import type { UIPreferences } from '@plannotator/ui/utils/uiPreferences';
 import { SparklesIcon } from '@plannotator/ui/components/SparklesIcon';
 import { Button } from '@plannotator/ui/components/ui/button';
 import { cn } from '@plannotator/ui/lib/utils';
@@ -49,9 +48,7 @@ interface AppHeaderProps {
   callbackConfig: CallbackConfig | null;
 
   // Settings props
-  taterMode: boolean;
   mobileSettingsOpen: boolean;
-  gitUser: string | undefined;
 
   // Handlers — App owns all decision logic, header just calls these
   onCallbackFeedback: () => void;
@@ -65,9 +62,6 @@ interface AppHeaderProps {
   onApprove: () => void;
   onAnnotationPanelToggle: () => void;
   onAIChatToggle: () => void;
-  onTaterModeChange: (enabled: boolean) => void;
-  onIdentityChange: (oldId: string, newId: string) => void;
-  onUIPreferencesChange: (prefs: UIPreferences) => void;
   onOpenSettings: () => void;
   onCloseSettings: () => void;
   onOpenExport: () => void;
@@ -111,9 +105,7 @@ export const AppHeader = React.memo<AppHeaderProps>(({
   availableAgents,
   showAnnotationsWarning,
   callbackConfig,
-  taterMode,
   mobileSettingsOpen,
-  gitUser,
   onCallbackFeedback,
   onCallbackApprove,
   onAnnotateExit,
@@ -125,9 +117,6 @@ export const AppHeader = React.memo<AppHeaderProps>(({
   onApprove,
   onAnnotationPanelToggle,
   onAIChatToggle,
-  onTaterModeChange,
-  onIdentityChange,
-  onUIPreferencesChange,
   onOpenSettings,
   onCloseSettings,
   onOpenExport,

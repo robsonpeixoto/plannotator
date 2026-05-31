@@ -18,6 +18,7 @@ import { AISettingsTab } from "../AISettingsTab";
 import { HooksTab } from "./HooksTab";
 import { getAIProviderSettings, saveAIProviderSettings } from "../../utils/aiProvider";
 import { configStore } from "../../config";
+import type { Origin } from "@plannotator/shared/agents";
 
 /**
  * SettingsDialog — the single, shared settings surface.
@@ -143,21 +144,27 @@ export function SettingsDialog({
       setGitUser(undefined);
       return;
     }
+    let active = true;
     fetch("/daemon/git/user")
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
+        if (!active) return;
         if (data?.gitUser) setGitUser(data.gitUser);
       })
       .catch(() => {});
     fetch("/daemon/config")
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
+        if (!active) return;
         if (data?.config) {
           configStore.getState().init(data.config);
           setLegacyTabMode(!!data.config.legacyTabMode);
         }
       })
       .catch(() => {});
+    return () => {
+      active = false;
+    };
   }, [open, daemonAvailable]);
 
   // Daemon-routed fetch for tabs that need server calls without session context
@@ -353,6 +360,7 @@ export function SettingsDialog({
                     <AISettingsTab
                       providers={aiProviders}
                       selectedProviderId={aiProviderId}
+                      origin={activeOrigin as Origin | null}
                       onProviderChange={handleAiProviderChange}
                     />
                   </TabsContent>

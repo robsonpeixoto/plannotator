@@ -38,7 +38,7 @@ import {
 } from '@plannotator/ui/utils/aiProvider';
 import { markPlanAIAnnouncementSeen, needsPlanAIAnnouncement } from '@plannotator/ui/utils/planAIAnnouncement';
 import { useAIChat } from '@plannotator/ui/hooks/useAIChat';
-import { getUIPreferences, type UIPreferences, PLAN_WIDTH_OPTIONS } from '@plannotator/ui/utils/uiPreferences';
+import { PLAN_WIDTH_OPTIONS } from '@plannotator/ui/utils/uiPreferences';
 import { getEditorMode, saveEditorMode } from '@plannotator/ui/utils/editorMode';
 import { getInputMethod, saveInputMethod } from '@plannotator/ui/utils/inputMethod';
 import { useInputMethodSwitch } from '@plannotator/ui/hooks/useInputMethodSwitch';
@@ -148,7 +148,8 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
   const taterMode = useConfigValue('taterMode');
   const gridEnabled = useConfigValue('gridEnabled');
   const planWidth = useConfigValue('planWidth');
-  const [uiPrefs, setUiPrefs] = useState(() => getUIPreferences());
+  const tocEnabled = useConfigValue('tocEnabled');
+  const stickyActionsEnabled = useConfigValue('stickyActionsEnabled');
 
   // Plan-area width (inside the OverlayScrollArea, after sidebar/panel
   // shrinkage) drives the action button label compactness. ResizeObserver
@@ -164,7 +165,6 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
   const [actionsLabelMode, setActionsLabelMode] = useState<ActionsLabelMode>('full');
   const [isApiMode, setIsApiMode] = useState(false);
   const [origin, setOrigin] = useState<Origin | null>(null);
-  const [gitUser, setGitUser] = useState<string | undefined>();
   const [isWSL, setIsWSL] = useState(false);
   const [legacyTabMode, setLegacyTabMode] = useState(false);
   const [globalAttachments, setGlobalAttachments] = useState<ImageAttachment[]>([]);
@@ -201,7 +201,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
   const [projectRoot, setProjectRoot] = useState<string | null>(null);
   const [wideModeType, setWideModeType] = useState<WideModeType | null>(null);
   const wideModeSnapshotRef = useRef<WideModeLayoutSnapshot | null>(null);
-  const lastAppliedTocEnabledRef = useRef(uiPrefs.tocEnabled);
+  const lastAppliedTocEnabledRef = useRef(tocEnabled);
   const goalSetupMode = goalSetupBundle !== null;
 
   useEffect(() => {
@@ -253,7 +253,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
   const isResizing = panelResize.isDragging || tocResize.isDragging;
 
   // Sidebar (shared TOC + Version Browser)
-  const sidebar = useSidebar(getUIPreferences().tocEnabled);
+  const sidebar = useSidebar(tocEnabled);
 
   // Whether the document has any TOC-eligible headings (level <= 3, matching
   // buildTocHierarchy). Drives the empty-doc auto-close behavior below — must
@@ -337,11 +337,11 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
   // Sync sidebar open state when preference changes in Settings
   useEffect(() => {
     if (wideModeType !== null) return;
-    if (lastAppliedTocEnabledRef.current === uiPrefs.tocEnabled) return;
-    lastAppliedTocEnabledRef.current = uiPrefs.tocEnabled;
-    if (uiPrefs.tocEnabled && hasTocEntries) sidebar.open('toc');
-    else if (!uiPrefs.tocEnabled) sidebar.close();
-  }, [wideModeType, sidebar.close, sidebar.open, uiPrefs.tocEnabled, hasTocEntries]);
+    if (lastAppliedTocEnabledRef.current === tocEnabled) return;
+    lastAppliedTocEnabledRef.current = tocEnabled;
+    if (tocEnabled && hasTocEntries) sidebar.open('toc');
+    else if (!tocEnabled) sidebar.close();
+  }, [wideModeType, sidebar.close, sidebar.open, tocEnabled, hasTocEntries]);
 
   // Auto-close the sidebar when blocks parse with no TOC entries. Fires
   // only on blocks/hasTocEntries change (not on sidebar state) so a user
@@ -453,7 +453,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
   const fileBrowser = useFileBrowser();
   const showFilesTab = useMemo(
     () => !!projectRoot || isFileBrowserEnabled(),
-    [projectRoot, uiPrefs]
+    [projectRoot, tocEnabled, stickyActionsEnabled]
   );
   const fileBrowserDirs = useMemo(() => {
     const projectDirs = projectRoot ? [projectRoot] : [];
@@ -461,7 +461,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
       ? getFileBrowserSettings().directories
       : [];
     return [...new Set([...projectDirs, ...userDirs])];
-  }, [projectRoot, uiPrefs]);
+  }, [projectRoot, tocEnabled, stickyActionsEnabled]);
 
   // Clear active file when file browser is disabled
   useEffect(() => {
@@ -775,10 +775,6 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
     }
   }, [pendingSharedAnnotations, clearPendingSharedAnnotations, resetExternalHighlights]);
 
-  const handleTaterModeChange = useCallback((enabled: boolean) => {
-    configStore.getState().set('taterMode', enabled);
-  }, []);
-
   const handleEditorModeChange = (mode: EditorMode) => {
     setEditorMode(mode);
     saveEditorMode(mode);
@@ -809,8 +805,6 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
         // Enable the Ask AI document chat session for plan review (disabled for
         // goal-setup mode, which has no reviewable document context).
         setAISessionEnabled(data.mode !== 'goal-setup');
-        // gitUser drives the "Use git name" button in Settings; stays undefined (button hidden) when unavailable
-        setGitUser(data.serverConfig?.gitUser);
         if ((data.serverConfig as { legacyTabMode?: boolean } | undefined)?.legacyTabMode) setLegacyTabMode(true);
         if (data.mode === 'goal-setup' && data.goalSetup) {
           setGoalSetupBundle(data.goalSetup);
@@ -1832,9 +1826,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
           availableAgents={availableAgents}
           showAnnotationsWarning={allAnnotations.length > 0 || codeAnnotations.length > 0}
           callbackConfig={callbackConfig}
-          taterMode={taterMode}
           mobileSettingsOpen={mobileSettingsOpen}
-          gitUser={gitUser}
           onCallbackFeedback={handleCallbackFeedback}
           onCallbackApprove={handleCallbackApprove}
           onAnnotateExit={handleHeaderAnnotateExit}
@@ -1846,9 +1838,6 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
           onApprove={handleHeaderApprove}
           onAnnotationPanelToggle={handleAnnotationPanelToggle}
           onAIChatToggle={handleAIChatToggle}
-          onTaterModeChange={handleTaterModeChange}
-          onIdentityChange={handleIdentityChange}
-          onUIPreferencesChange={setUiPrefs}
           onOpenSettings={handleOpenSettings}
           onCloseSettings={handleCloseSettings}
           onOpenExport={handleOpenExport}
@@ -1955,7 +1944,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
                   truth there. Hidden in plan diff mode, or when
                   sticky actions are disabled. remountToken re-anchors the
                   ResizeObserver when Viewer swaps content (linked docs). */}
-              {!goalSetupMode && !isPlanDiffActive && uiPrefs.stickyActionsEnabled && (
+              {!goalSetupMode && !isPlanDiffActive && stickyActionsEnabled && (
                 <StickyHeaderLane
                   inputMethod={inputMethod}
                   onInputMethodChange={handleInputMethodChange}
@@ -2097,7 +2086,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
                     onAddGlobalAttachment={handleAddGlobalAttachment}
                     onRemoveGlobalAttachment={handleRemoveGlobalAttachment}
                     repoInfo={repoInfo}
-                    stickyActions={uiPrefs.stickyActionsEnabled}
+                    stickyActions={stickyActionsEnabled}
                     planDiffStats={linkedDocHook.isActive ? null : planDiff.diffStats}
                     isPlanDiffActive={isPlanDiffActive}
                     onPlanDiffToggle={togglePlanDiff}

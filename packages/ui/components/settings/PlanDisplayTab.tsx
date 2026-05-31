@@ -1,30 +1,17 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
-  getUIPreferences,
-  saveUIPreferences,
   PLAN_WIDTH_OPTIONS,
-  type UIPreferences,
   type PlanWidth,
 } from '../../utils/uiPreferences';
 import { configStore, useConfigValue } from '../../config';
 import { ToggleSwitch } from './shared';
 
-interface PlanDisplayTabProps {
-  onUIPreferencesChange?: (prefs: UIPreferences) => void;
-}
-
-export const PlanDisplayTab: React.FC<PlanDisplayTabProps> = ({ onUIPreferencesChange }) => {
+export const PlanDisplayTab: React.FC = () => {
   const taterMode = useConfigValue('taterMode');
   const gridEnabled = useConfigValue('gridEnabled');
   const planWidth = useConfigValue('planWidth');
-  const [uiPrefs, setUiPrefs] = useState<UIPreferences>(() => getUIPreferences());
-
-  const handleChange = (updates: Partial<UIPreferences>) => {
-    const next = { ...uiPrefs, ...updates };
-    setUiPrefs(next);
-    saveUIPreferences(next);
-    onUIPreferencesChange?.(next);
-  };
+  const tocEnabled = useConfigValue('tocEnabled');
+  const stickyActionsEnabled = useConfigValue('stickyActionsEnabled');
 
   const active = PLAN_WIDTH_OPTIONS.find((o) => o.id === planWidth) ?? PLAN_WIDTH_OPTIONS[0];
   const cardPctMap: Record<PlanWidth, number> = { compact: 48, default: 70, wide: 94, ultrawide: 100 };
@@ -32,8 +19,8 @@ export const PlanDisplayTab: React.FC<PlanDisplayTabProps> = ({ onUIPreferencesC
   return (
     <div className="space-y-5">
       <ToggleSwitch
-        checked={uiPrefs.tocEnabled}
-        onChange={(v) => handleChange({ tocEnabled: v })}
+        checked={tocEnabled}
+        onChange={(v) => configStore.getState().set('tocEnabled', v)}
         label="Auto-open Sidebar"
         description="Open sidebar with Table of Contents on load"
       />
@@ -41,8 +28,8 @@ export const PlanDisplayTab: React.FC<PlanDisplayTabProps> = ({ onUIPreferencesC
       <div className="border-t border-border" />
 
       <ToggleSwitch
-        checked={uiPrefs.stickyActionsEnabled}
-        onChange={(v) => handleChange({ stickyActionsEnabled: v })}
+        checked={stickyActionsEnabled}
+        onChange={(v) => configStore.getState().set('stickyActionsEnabled', v)}
         label="Sticky Actions"
         description="Keep action buttons visible while scrolling"
       />

@@ -279,6 +279,30 @@ export const SETTINGS = {
     fromServer: undefined,
     toServer: undefined,
   },
+  /** Auto-open the left sidebar (TOC tab) on load. Cookie-only. */
+  tocEnabled: {
+    defaultValue: true as boolean,
+    fromCookie: () => {
+      const v = storage.getItem('plannotator-toc-enabled');
+      return v === undefined || v === null ? undefined : v !== 'false';
+    },
+    toCookie: (v: boolean) => storage.setItem('plannotator-toc-enabled', String(v)),
+    serverKey: undefined,
+    fromServer: undefined,
+    toServer: undefined,
+  },
+  /** Keep action buttons pinned while scrolling. Cookie-only. */
+  stickyActionsEnabled: {
+    defaultValue: true as boolean,
+    fromCookie: () => {
+      const v = storage.getItem('plannotator-sticky-actions-enabled');
+      return v === undefined || v === null ? undefined : v !== 'false';
+    },
+    toCookie: (v: boolean) => storage.setItem('plannotator-sticky-actions-enabled', String(v)),
+    serverKey: undefined,
+    fromServer: undefined,
+    toServer: undefined,
+  },
   /** Grid pattern behind the plan document. Optional, default OFF. Cookie-only. */
   gridEnabled: {
     defaultValue: false as boolean,
