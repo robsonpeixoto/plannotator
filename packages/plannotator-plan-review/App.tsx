@@ -16,8 +16,7 @@ import { ThemeProvider } from '@plannotator/ui/components/ThemeProvider';
 import { Tooltip, TooltipProvider } from '@plannotator/ui/components/Tooltip';
 import { AnnotationToolstrip } from '@plannotator/ui/components/AnnotationToolstrip';
 import { StickyHeaderLane } from '@plannotator/ui/components/StickyHeaderLane';
-import { TaterSpriteRunning } from '@plannotator/ui/components/TaterSpriteRunning';
-import { TaterSpritePullup } from '@plannotator/ui/components/TaterSpritePullup';
+import { TaterSpriteRunning, TaterSpritePullup } from '@plannotator/ui/components/sprites';
 import { useSharing } from '@plannotator/ui/hooks/useSharing';
 import { getCallbackConfig, CallbackAction, executeCallback } from '@plannotator/ui/utils/callback';
 import { useAgents } from '@plannotator/ui/hooks/useAgents';
@@ -244,16 +243,25 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
 
   usePrintMode();
 
+  // Sidebar (shared TOC + Version Browser)
+  const sidebar = useSidebar(tocEnabled);
+
   // Resizable panels
-  const panelResize = useResizablePanel({ storageKey: 'plannotator-panel-width' });
+  const panelResize = useResizablePanel({
+    storageKey: 'plannotator-panel-width',
+    // Render-free drag: write the live width to a :root var the panel reads,
+    // so dragging never re-renders this (heavy) App.
+    apply: (w) => document.documentElement.style.setProperty('--rpanel-w', `${w}px`),
+  });
   const tocResize = useResizablePanel({
     storageKey: 'plannotator-toc-width',
     defaultWidth: 240, minWidth: 160, maxWidth: 400, side: 'left',
+    // Drag the contents panel skinny → snap it shut (prototype behavior).
+    onSnapClose: sidebar.close,
+    // Render-free drag: write the live width to a :root var the panel reads.
+    apply: (w) => document.documentElement.style.setProperty('--toc-w', `${w}px`),
   });
   const isResizing = panelResize.isDragging || tocResize.isDragging;
-
-  // Sidebar (shared TOC + Version Browser)
-  const sidebar = useSidebar(tocEnabled);
 
   // Whether the document has any TOC-eligible headings (level <= 3, matching
   // buildTocHierarchy). Drives the empty-doc auto-close behavior below — must
@@ -1898,7 +1906,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
                 activeTab={sidebar.activeTab}
                 onTabChange={toggleSidebarTab}
                 onClose={sidebar.close}
-                width={tocResize.width}
+                width={`var(--toc-w, ${tocResize.width}px)`}
                 blocks={blocks}
                 annotations={annotations}
                 activeSection={activeSection}
@@ -2127,7 +2135,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
             onDeleteCodeAnnotation={handleDeleteCodeAnnotation}
             onEditCodeAnnotation={handleEditCodeAnnotation}
             sharingEnabled={canShareCurrentSession}
-            width={panelResize.width}
+            width={`var(--rpanel-w, ${panelResize.width}px)`}
             editorAnnotations={editorAnnotations}
             onDeleteEditorAnnotation={deleteEditorAnnotation}
             onClose={() => setIsPanelOpen(false)}
@@ -2144,7 +2152,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
               className={`border-l border-border/50 bg-card flex flex-col flex-shrink-0 ${
                 isMobile ? 'fixed top-12 bottom-0 right-0 z-[60] w-full max-w-sm shadow-2xl bg-card' : ''
               }`}
-              style={isMobile ? undefined : { width: panelResize.width ?? 288 }}
+              style={isMobile ? undefined : { width: `var(--rpanel-w, ${panelResize.width ?? 288}px)` }}
             >
               <div className="px-3 flex items-center border-b border-border/50" style={{ height: 'var(--panel-header-h)' }}>
                 <div className="flex items-center gap-2 w-full min-w-0">

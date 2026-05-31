@@ -23,7 +23,21 @@ export function AddProjectDialog({ open, onOpenChange }: AddProjectDialogProps) 
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const recentProjects = projects.slice(0, 5);
+  // Filter recents by what's typed so they don't linger when the path clearly
+  // doesn't match — matches against the project name, its ~-display path, and
+  // its absolute cwd. Empty query (or the default "~") shows all recents.
+  const q = query.trim().toLowerCase();
+  const recentProjects = projects
+    .filter((p) => {
+      if (!q) return true;
+      const display = p.cwd.replace(/^\/Users\/[^/]+/, "~").toLowerCase();
+      return (
+        p.name.toLowerCase().includes(q) ||
+        display.includes(q) ||
+        p.cwd.toLowerCase().includes(q)
+      );
+    })
+    .slice(0, 5);
 
   const fetchDirs = useCallback(async (path: string) => {
     setLoading(true);

@@ -34,7 +34,7 @@ class ToolbarErrorBoundary extends React.Component<
 }
 
 import { CommentPopover, type CommentAskAIContext } from './CommentPopover';
-import { TaterSpriteSitting } from './TaterSpriteSitting';
+import { TaterSpriteSitting } from './sprites';
 import { AttachmentsButton } from './AttachmentsButton';
 import { GraphvizBlock } from './GraphvizBlock';
 import { MermaidBlock } from './MermaidBlock';

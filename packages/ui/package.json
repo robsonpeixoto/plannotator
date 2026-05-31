@@ -9,6 +9,7 @@
     "./components/goal-setup/*": "./components/goal-setup/*.tsx",
     "./components/ImageAnnotator": "./components/ImageAnnotator/index.tsx",
     "./components/sidebar/*": "./components/sidebar/*.tsx",
+    "./components/sprites": "./components/sprites/index.ts",
     "./components/plan-diff/*": "./components/plan-diff/*.tsx",
     "./components/ui/*": "./components/ui/*.tsx",
     "./lib/*": "./lib/*.ts",
