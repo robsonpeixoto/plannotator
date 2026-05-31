@@ -189,7 +189,7 @@ export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
   return createPortal(
     <div
       ref={toolbarRef}
-      className="annotation-toolbar fixed z-[100] bg-popover border border-border rounded-lg shadow-2xl"
+      className="annotation-toolbar fixed z-[100] rounded-xl bg-card/95 shadow-[0_0_0_1px_rgba(0,0,0,0.06),0_4px_12px_-2px_rgba(0,0,0,0.12)] backdrop-blur-sm"
       style={style}
       onMouseDown={(e) => e.stopPropagation()}
       onMouseEnter={onMouseEnter}

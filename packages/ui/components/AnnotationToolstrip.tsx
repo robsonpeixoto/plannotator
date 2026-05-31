@@ -45,7 +45,7 @@ export const AnnotationToolstrip: React.FC<AnnotationToolstripProps> = ({
     <>
       <div className={`flex items-center flex-wrap ${compact ? 'gap-1' : 'gap-1.5'}`}>
         {/* Input method group */}
-        <div className="inline-flex items-center gap-0.5 bg-muted/50 rounded-lg p-0.5 border border-border/30">
+        <div className={`inline-flex select-none items-center gap-0.5 ${compact ? 'rounded-md bg-muted/40' : 'rounded-lg bg-muted/60'} p-0.5`}>
           <ToolstripButton
             active={inputMethod === 'drag'}
             onClick={() => onInputMethodChange('drag')}
@@ -73,7 +73,7 @@ export const AnnotationToolstrip: React.FC<AnnotationToolstripProps> = ({
         </div>
 
         {/* Action mode group */}
-        <div className="inline-flex items-center gap-0.5 bg-muted/50 rounded-lg p-0.5 border border-border/30">
+        <div className={`inline-flex select-none items-center gap-0.5 ${compact ? 'rounded-md bg-muted/40' : 'rounded-lg bg-muted/60'} p-0.5`}>
           <ToolstripButton
             active={mode === 'selection'}
             onClick={() => onModeChange('selection')}
@@ -202,29 +202,32 @@ export const AnnotationToolstrip: React.FC<AnnotationToolstripProps> = ({
 
 /* ─── Color system ─── */
 
+/* Active state mirrors the prototype's ToolstripBtn: a raised `bg-card shadow-sm`
+ * surface with a per-mode active color (input-method=foreground, markup/comment
+ * =blue-500, redline=red-500, label=yellow-500). */
 const colorStyles = {
   primary: {
-    active: 'bg-background text-foreground shadow-sm',
+    active: 'bg-card text-foreground shadow-sm',
     hover: 'text-primary/80 bg-primary/8',
     inactive: 'text-muted-foreground hover:text-foreground',
   },
   secondary: {
-    active: 'bg-background text-foreground shadow-sm',
+    active: 'bg-card text-blue-500 shadow-sm',
     hover: 'text-secondary/80 bg-secondary/8',
     inactive: 'text-muted-foreground hover:text-foreground',
   },
   accent: {
-    active: 'bg-background text-foreground shadow-sm',
+    active: 'bg-card text-blue-500 shadow-sm',
     hover: 'text-accent/80 bg-accent/8',
     inactive: 'text-muted-foreground hover:text-foreground',
   },
   destructive: {
-    active: 'bg-background text-foreground shadow-sm',
+    active: 'bg-card text-red-500 shadow-sm',
     hover: 'text-destructive/80 bg-destructive/8',
     inactive: 'text-muted-foreground hover:text-foreground',
   },
   warning: {
-    active: 'bg-background text-foreground shadow-sm',
+    active: 'bg-card text-yellow-500 shadow-sm',
     hover: 'text-warning/80 bg-warning/8',
     inactive: 'text-muted-foreground hover:text-foreground',
   },

@@ -2159,11 +2159,11 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
                     </svg>
                   </button>
                   <SparklesIcon className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-                  <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground truncate">
+                  <h2 className="text-xs font-semibold text-foreground truncate">
                     AI
                   </h2>
                   {aiMessages.length > 0 && (
-                    <span className="text-[10px] font-mono bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
+                    <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-primary/10 px-1 font-mono text-[10px] font-medium tabular-nums text-primary">
                       {aiMessages.length}
                     </span>
                   )}

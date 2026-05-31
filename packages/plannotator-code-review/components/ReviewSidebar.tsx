@@ -376,6 +376,7 @@ export const ReviewSidebar: React.FC<ReviewSidebarProps> = /* React.memo */({
                     <EditorAnnotationCard
                       key={ann.id}
                       annotation={ann}
+                      variant="code-review"
                       onDelete={() => onDeleteEditorAnnotation?.(ann.id)}
                     />
                   ))}
