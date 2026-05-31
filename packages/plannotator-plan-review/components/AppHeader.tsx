@@ -10,7 +10,7 @@ import type { CallbackConfig } from '@plannotator/ui/utils/callback';
 import { SparklesIcon } from '@plannotator/ui/components/SparklesIcon';
 import { Button } from '@plannotator/ui/components/ui/button';
 import { cn } from '@plannotator/ui/lib/utils';
-import { PanelRightClose, PanelRightOpen } from 'lucide-react';
+import { CommentIcon } from '@plannotator/ui/components/icons/CommentIcon';
 
 interface AppHeaderProps {
   // Slot for external content (e.g., shell sidebar trigger)
@@ -248,7 +248,7 @@ export const AppHeader = React.memo<AppHeaderProps>(({
             title={isPanelOpen ? 'Hide annotations' : 'Show annotations'}
             className={cn('p-1.5', isPanelOpen ? 'bg-primary/15 text-primary hover:bg-primary/15 hover:text-primary' : 'text-muted-foreground hover:bg-muted hover:text-foreground')}
           >
-            {isPanelOpen ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />}
+            <CommentIcon className="size-4" />
           </Button>
         )}
         {!goalSetupMode && aiAvailable && (

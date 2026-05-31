@@ -10,7 +10,7 @@ import type { SessionBootstrap } from "../../daemon/contracts";
 import { appStore } from "../../stores/app-store";
 
 const sidebarTrigger = (
-  <SidebarTrigger className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted" />
+  <SidebarTrigger className="p-1 rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-muted" />
 );
 
 const openSettings = () => appStore.getState().setSettingsOpen(true);
