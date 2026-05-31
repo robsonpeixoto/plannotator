@@ -4,7 +4,8 @@ import { SessionProvider } from "@plannotator/ui/hooks/useSessionFetch";
 import { ReviewAppEmbedded } from "@plannotator/code-review";
 import { PlanAppEmbedded } from "@plannotator/plan-review";
 import "@plannotator/code-review/styles";
-import "@plannotator/plan-review/styles";
+// plan-review styles are folded into the shared design system
+// (@plannotator/ui/design-system.css, imported via src/styles.css).
 import type { SessionBootstrap } from "../../daemon/contracts";
 import { appStore } from "../../stores/app-store";
 

@@ -68,10 +68,6 @@ export default defineConfig(({ command }) => {
           __dirname,
           "../../packages/plannotator-code-review",
         ),
-        "@plannotator/plan-review/styles": path.resolve(
-          __dirname,
-          "../../packages/plannotator-plan-review/index.css",
-        ),
         "@plannotator/plan-review": path.resolve(
           __dirname,
           "../../packages/plannotator-plan-review",
