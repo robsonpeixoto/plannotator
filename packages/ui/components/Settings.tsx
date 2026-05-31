@@ -569,7 +569,8 @@ export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange
   const [identity, setIdentity] = useState('');
   const [agent, setAgent] = useState<AgentSwitchSettings>({ switchTo: 'build' });
   const [planSave, setPlanSave] = useState<PlanSaveSettings>({ enabled: true, customPath: null });
-  const [uiPrefs, setUiPrefs] = useState<UIPreferences>({ tocEnabled: true, stickyActionsEnabled: true, planWidth: 'compact' });
+  const [uiPrefs, setUiPrefs] = useState<UIPreferences>({ tocEnabled: true, stickyActionsEnabled: true });
+  const planWidth = useConfigValue('planWidth');
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('bypassPermissions');
   const [agentWarning, setAgentWarning] = useState<string | null>(null);
   const [autoCloseDelay, setAutoCloseDelayState] = useState<AutoCloseDelay>('off');
@@ -1043,9 +1044,9 @@ export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange
                         {PLAN_WIDTH_OPTIONS.map((opt) => (
                           <button
                             key={opt.id}
-                            onClick={() => handleUIPrefsChange({ planWidth: opt.id })}
+                            onClick={() => configStore.getState().set('planWidth', opt.id)}
                             className={`flex-1 px-3 py-1.5 text-xs rounded-md transition-colors ${
-                              uiPrefs.planWidth === opt.id
+                              planWidth === opt.id
                                 ? 'bg-background text-foreground shadow-sm font-medium'
                                 : 'text-muted-foreground hover:text-foreground'
                             }`}
@@ -1057,11 +1058,11 @@ export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange
 
                       {/* Abstract layout preview — exaggerated proportions for visual clarity */}
                       {(() => {
-                        const active = PLAN_WIDTH_OPTIONS.find(o => o.id === uiPrefs.planWidth) ?? PLAN_WIDTH_OPTIONS[0];
+                        const active = PLAN_WIDTH_OPTIONS.find(o => o.id === planWidth) ?? PLAN_WIDTH_OPTIONS[0];
                         // Exaggerated proportions so the width difference is visually obvious in the small preview
                         const sidebarPct = 14;
                         const panelPct = 14;
-                        const cardPctMap: Record<PlanWidth, number> = { compact: 48, default: 70, wide: 94 };
+                        const cardPctMap: Record<PlanWidth, number> = { compact: 48, default: 70, wide: 94, ultrawide: 100 };
                         const cardPct = cardPctMap[active.id];
                         return (
                           <div className="space-y-2">
@@ -1127,7 +1128,7 @@ export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange
                               </div>
                             </div>
                             <div className="text-[10px] text-muted-foreground/70 leading-snug">
-                              {active.px}px — {active.hint}
+                              {active.px === null ? 'Full width' : `${active.px}px`} — {active.hint}
                             </div>
                           </div>
                         );

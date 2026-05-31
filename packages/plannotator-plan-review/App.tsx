@@ -38,7 +38,7 @@ import {
 } from '@plannotator/ui/utils/aiProvider';
 import { markPlanAIAnnouncementSeen, needsPlanAIAnnouncement } from '@plannotator/ui/utils/planAIAnnouncement';
 import { useAIChat } from '@plannotator/ui/hooks/useAIChat';
-import { getUIPreferences, type UIPreferences, type PlanWidth } from '@plannotator/ui/utils/uiPreferences';
+import { getUIPreferences, type UIPreferences, PLAN_WIDTH_OPTIONS } from '@plannotator/ui/utils/uiPreferences';
 import { getEditorMode, saveEditorMode } from '@plannotator/ui/utils/editorMode';
 import { getInputMethod, saveInputMethod } from '@plannotator/ui/utils/inputMethod';
 import { useInputMethodSwitch } from '@plannotator/ui/hooks/useInputMethodSwitch';
@@ -147,6 +147,7 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
   const [inputMethod, setInputMethod] = useState<InputMethod>(getInputMethod);
   const taterMode = useConfigValue('taterMode');
   const gridEnabled = useConfigValue('gridEnabled');
+  const planWidth = useConfigValue('planWidth');
   const [uiPrefs, setUiPrefs] = useState(() => getUIPreferences());
 
   // Plan-area width (inside the OverlayScrollArea, after sidebar/panel
@@ -1744,10 +1745,11 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
   const handlePrint = useCallback(() => window.print(), []);
   const handleOpenImport = useCallback(() => setShowImport(true), []);
 
-  const planMaxWidth = useMemo(() => {
-    const widths: Record<PlanWidth, number> = { compact: 832, default: 1040, wide: 1280 };
-    return widths[uiPrefs.planWidth] ?? 832;
-  }, [uiPrefs.planWidth]);
+  const planMaxWidth = useMemo<number | null>(() => {
+    const opt = PLAN_WIDTH_OPTIONS.find((o) => o.id === planWidth);
+    // px === null means "ultrawide" → no cap (full width).
+    return opt ? opt.px : 832;
+  }, [planWidth]);
   const annotateReaderMaxWidth = canUseWideMode && wideModeType === 'wide' ? null : planMaxWidth;
   const selectedAIProvider = aiProviders.find(provider => provider.id === aiConfig.providerId) ?? null;
   const shouldShowPlanAIAnnouncement =

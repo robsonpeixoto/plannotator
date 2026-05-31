@@ -12,6 +12,7 @@
 import type { DiffLineBgIntensity } from '@plannotator/shared/config';
 import { storage } from '../utils/storage';
 import { generateIdentity } from '../utils/generateIdentity';
+import { isPlanWidth, type PlanWidth } from '../utils/uiPreferences';
 
 const DIFF_LINE_BG_INTENSITY_VALUES = ['subtle', 'normal', 'strong'] as const;
 function isDiffLineBgIntensity(v: unknown): v is DiffLineBgIntensity {
@@ -262,6 +263,18 @@ export const SETTINGS = {
       return v === 'true' ? true : v === 'false' ? false : undefined;
     },
     toCookie: (v: boolean) => storage.setItem('plannotator-tater-mode', String(v)),
+    serverKey: undefined,
+    fromServer: undefined,
+    toServer: undefined,
+  },
+  /** Plan document max-width tier (compact/default/wide/ultrawide). Cookie-only. */
+  planWidth: {
+    defaultValue: 'compact' as PlanWidth,
+    fromCookie: () => {
+      const v = storage.getItem('plannotator-plan-width');
+      return isPlanWidth(v) ? v : undefined;
+    },
+    toCookie: (v: PlanWidth) => storage.setItem('plannotator-plan-width', v),
     serverKey: undefined,
     fromServer: undefined,
     toServer: undefined,

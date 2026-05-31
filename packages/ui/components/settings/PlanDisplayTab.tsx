@@ -16,6 +16,7 @@ interface PlanDisplayTabProps {
 export const PlanDisplayTab: React.FC<PlanDisplayTabProps> = ({ onUIPreferencesChange }) => {
   const taterMode = useConfigValue('taterMode');
   const gridEnabled = useConfigValue('gridEnabled');
+  const planWidth = useConfigValue('planWidth');
   const [uiPrefs, setUiPrefs] = useState<UIPreferences>(() => getUIPreferences());
 
   const handleChange = (updates: Partial<UIPreferences>) => {
@@ -25,8 +26,8 @@ export const PlanDisplayTab: React.FC<PlanDisplayTabProps> = ({ onUIPreferencesC
     onUIPreferencesChange?.(next);
   };
 
-  const active = PLAN_WIDTH_OPTIONS.find((o) => o.id === uiPrefs.planWidth) ?? PLAN_WIDTH_OPTIONS[0];
-  const cardPctMap: Record<PlanWidth, number> = { compact: 48, default: 70, wide: 94 };
+  const active = PLAN_WIDTH_OPTIONS.find((o) => o.id === planWidth) ?? PLAN_WIDTH_OPTIONS[0];
+  const cardPctMap: Record<PlanWidth, number> = { compact: 48, default: 70, wide: 94, ultrawide: 100 };
 
   return (
     <div className="space-y-5">
@@ -67,9 +68,9 @@ export const PlanDisplayTab: React.FC<PlanDisplayTabProps> = ({ onUIPreferencesC
             <button
               key={opt.id}
               type="button"
-              onClick={() => handleChange({ planWidth: opt.id })}
+              onClick={() => configStore.getState().set('planWidth', opt.id)}
               className={`flex-1 px-3 py-1.5 text-xs rounded-md ${
-                uiPrefs.planWidth === opt.id
+                planWidth === opt.id
                   ? 'bg-background text-foreground shadow-sm font-medium'
                   : 'text-foreground/70 hover:text-foreground'
               }`}
@@ -120,7 +121,7 @@ export const PlanDisplayTab: React.FC<PlanDisplayTabProps> = ({ onUIPreferencesC
           </div>
         </div>
         <div className="text-[10px] text-muted-foreground">
-          {active.px}px — {active.hint}
+          {active.px === null ? 'Full width' : `${active.px}px`} — {active.hint}
         </div>
       </div>
 
