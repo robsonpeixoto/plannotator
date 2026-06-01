@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Link, useMatchRoute } from "@tanstack/react-router";
 import * as Collapsible from "@radix-ui/react-collapsible";
-import { Folder, FolderOpen, Moon, Plus, Settings, Sun } from "lucide-react";
+import { Folder, FolderOpen, Plus, Settings } from "lucide-react";
 import { TaterSpriteSidebar } from "@plannotator/ui/components/sprites";
 import { useActiveProjectCwd } from "./useActiveProjectCwd";
 import { ROW, pad } from "./row-style";
@@ -16,7 +16,6 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
-import { useTheme } from "@plannotator/ui/components/ThemeProvider";
 import { buildSessionTree } from "@plannotator/ui/utils/sessionTree";
 import type {
   SessionTreeProject,
@@ -167,7 +166,6 @@ export function AppSidebarContent({ contentClassName }: { contentClassName?: str
   const expandedProjects = useAppStore((s) => s.expandedProjects);
   const toggleProjectExpand = useAppStore((s) => s.toggleProjectExpand);
   const activeProjectCwd = useActiveProjectCwd();
-  const { resolvedMode, setMode } = useTheme();
   const matchRoute = useMatchRoute();
 
   // Live-only: exclude terminal sessions (completed/cancelled/expired/failed).
@@ -193,10 +191,6 @@ export function AppSidebarContent({ contentClassName }: { contentClassName?: str
       appStore.getState().setProjectExpanded(activeProjectCwd, true);
     }
   }, [activeProjectCwd]);
-
-  const toggleTheme = useCallback(() => {
-    setMode(resolvedMode === "dark" ? "light" : "dark");
-  }, [resolvedMode, setMode]);
 
   return (
     <>
@@ -266,12 +260,6 @@ export function AppSidebarContent({ contentClassName }: { contentClassName?: str
             >
               <Settings />
               <span>Settings</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton onClick={toggleTheme} tooltip="Toggle theme">
-              {resolvedMode === "dark" ? <Sun /> : <Moon />}
-              <span>Toggle theme</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
