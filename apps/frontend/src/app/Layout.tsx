@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { Outlet, useMatchRoute } from "@tanstack/react-router";
 import { Toaster } from "sonner";
 import { SidebarProvider, useSidebar } from "@/components/ui/sidebar";
@@ -20,15 +20,23 @@ import { useAppStore } from "../stores/app-store";
 
 function LayoutContent({
   sidebarResize,
+  closeSidebarRef,
 }: {
   sidebarResize: ReturnType<typeof useResizablePanel>;
+  closeSidebarRef: React.MutableRefObject<() => void>;
 }) {
   const addProjectOpen = useAppStore((s) => s.addProjectOpen);
   const setAddProjectOpen = useAppStore((s) => s.setAddProjectOpen);
   const activeSessionId = useAppStore((s) => s.activeSessionId);
   const visitedSessions = useAppStore((s) => s.visitedSessions);
   const matchRoute = useMatchRoute();
-  const { open: sidebarOpen } = useSidebar();
+  const { open: sidebarOpen, setOpen: setSidebarOpen } = useSidebar();
+
+  // Bridge the snap-close handler (created outside the provider) to the
+  // sidebar's setter, which only exists in here.
+  useEffect(() => {
+    closeSidebarRef.current = () => setSidebarOpen(false);
+  }, [closeSidebarRef, setSidebarOpen]);
 
   const { reportActiveSession } = useDaemonEvents();
 
@@ -127,12 +135,18 @@ function LayoutContent({
 export function Layout() {
   const matchRoute = useMatchRoute();
   const initiallyOnSession = !!matchRoute({ to: "/s/$sessionId", fuzzy: true });
+  // useSidebar() (which owns the close fn) only exists inside SidebarProvider,
+  // so the snap handler can't reach it from here. LayoutContent fills this ref;
+  // the snap handler calls through it.
+  const closeSidebarRef = useRef<() => void>(() => {});
   const sidebarResize = useResizablePanel({
     storageKey: "plannotator-app-sidebar-width",
     defaultWidth: 256, // 16rem
     minWidth: 220,
     maxWidth: 480,
     side: "left",
+    // Drag the sidebar skinny → snap it shut (matches the in-plan panels).
+    onSnapClose: () => closeSidebarRef.current(),
     // Render-free drag: write the live width straight to a :root CSS var. The
     // whole layout (sidebar, sessions) never re-renders mid-drag. React only
     // commits to state on release. SidebarProvider's --sidebar-width references
@@ -154,7 +168,7 @@ export function Layout() {
           } as React.CSSProperties
         }
       >
-        <LayoutContent sidebarResize={sidebarResize} />
+        <LayoutContent sidebarResize={sidebarResize} closeSidebarRef={closeSidebarRef} />
       </SidebarProvider>
     </TooltipProvider>
   );

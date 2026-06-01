@@ -249,6 +249,8 @@ const App: React.FC<{ __embedded?: boolean; headerLeft?: React.ReactNode; onOpen
   // Resizable panels
   const panelResize = useResizablePanel({
     storageKey: 'plannotator-panel-width',
+    // Drag the right panel skinny → snap it shut (matches the contents sidebar).
+    onSnapClose: () => setIsPanelOpen(false),
     // Render-free drag: write the live width to a :root var the panel reads,
     // so dragging never re-renders this (heavy) App.
     apply: (w) => document.documentElement.style.setProperty('--rpanel-w', `${w}px`),
