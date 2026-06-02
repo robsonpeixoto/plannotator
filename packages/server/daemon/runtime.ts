@@ -1,7 +1,7 @@
 import { getServerHostname, getServerPort, isRemoteSession } from "../remote";
 import { openBrowser } from "../browser";
 import { loadConfig } from "@plannotator/shared/config";
-import { acquireDaemonLock, createDaemonState, createDaemonBrowserAuthUrl, removeDaemonState, writeDaemonState, type DaemonLock, type DaemonState, type DaemonStateOptions } from "./state";
+import { acquireDaemonLock, createDaemonState, createDaemonBrowserUrl, removeDaemonState, writeDaemonState, type DaemonLock, type DaemonState, type DaemonStateOptions } from "./state";
 import { DaemonSessionStore, listSnapshots, type DaemonSessionRecord } from "./session-store";
 import { createDaemonFetchHandler, type DaemonFetchContext, type DaemonFetchHandler, type SessionBrowserAction } from "./server";
 import type { DaemonCreateSessionRequest } from "@plannotator/shared/daemon-protocol";
@@ -122,7 +122,7 @@ export async function startDaemonRuntime(options: StartDaemonRuntimeOptions): Pr
       // Opening the URL focuses the session in the window the user is actually in.
       // (Tab-per-session is the cost; never leaving the user hanging is the win. A
       // no-new-tab "quiet/dashboard" mode is a future opt-in.)
-      const url = createDaemonBrowserAuthUrl(state, new URL(record.url).pathname);
+      const url = createDaemonBrowserUrl(state, new URL(record.url).pathname);
       await openBrowser(url, { isRemote });
       return "opened";
     }

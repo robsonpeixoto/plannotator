@@ -59,7 +59,7 @@ import { cleanupDaemonState, discoverDaemon, waitForDaemonShutdown } from "@plan
 import { startDaemonRuntime } from "@plannotator/server/daemon/runtime";
 import { createDaemonSessionFactory } from "@plannotator/server/daemon/session-factory";
 import { getDaemonStartCommand } from "@plannotator/server/daemon/start-command";
-import { createDaemonBrowserAuthUrl } from "@plannotator/server/daemon/state";
+import { createDaemonBrowserUrl } from "@plannotator/server/daemon/state";
 import { formatRemoteShareNotice } from "@plannotator/server/share-url";
 import { AGENT_CONFIG, type Origin } from "@plannotator/shared/agents";
 import type { DaemonSessionSummary } from "@plannotator/shared/daemon-protocol";
@@ -263,7 +263,7 @@ async function runDaemonCommand(): Promise<void> {
     console.log(JSON.stringify({
       ok: true,
       status: daemon.status,
-      browserUrl: createDaemonBrowserAuthUrl(daemon.state),
+      browserUrl: createDaemonBrowserUrl(daemon.state),
     }));
     process.exit(0);
   }
@@ -302,7 +302,7 @@ async function runDaemonCommand(): Promise<void> {
         ok: true,
         alreadyRunning: true,
         status: existing.status,
-        browserUrl: createDaemonBrowserAuthUrl(existing.state),
+        browserUrl: createDaemonBrowserUrl(existing.state),
       }));
       process.exit(0);
     }
@@ -341,7 +341,7 @@ async function runDaemonCommand(): Promise<void> {
             ok: true,
             started: true,
             status: daemon.status,
-            browserUrl: createDaemonBrowserAuthUrl(daemon.state),
+            browserUrl: createDaemonBrowserUrl(daemon.state),
           }));
           process.exit(0);
         }
@@ -395,7 +395,7 @@ async function runDaemonCommand(): Promise<void> {
       process.exit(1);
     }
 
-    console.log(JSON.stringify({ ok: true, started: true, browserUrl: createDaemonBrowserAuthUrl(runtime.state), status: {
+    console.log(JSON.stringify({ ok: true, started: true, browserUrl: createDaemonBrowserUrl(runtime.state), status: {
       pid: runtime.state.pid,
       endpoint: {
         hostname: runtime.state.hostname,
@@ -816,7 +816,7 @@ if (args[0] === "sessions") {
       console.error(`Session #${n} not found. ${sessions.length} active session(s).`);
       process.exit(1);
     }
-    await openBrowser(createDaemonBrowserAuthUrl(daemon.state, new URL(session.url).pathname), { isRemote: daemon.status.endpoint.isRemote });
+    await openBrowser(createDaemonBrowserUrl(daemon.state, new URL(session.url).pathname), { isRemote: daemon.status.endpoint.isRemote });
     console.error(`Opened ${session.mode} session in browser: ${session.url}`);
     process.exit(0);
   }

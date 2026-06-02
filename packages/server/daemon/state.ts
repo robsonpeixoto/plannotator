@@ -58,7 +58,7 @@ function defaultIsAlive(pid: number): boolean {
 }
 
 /** Build a browser URL for the daemon (no auth — the daemon is open on localhost). */
-export function createDaemonBrowserAuthUrl(state: DaemonState, pathname = "/"): string {
+export function createDaemonBrowserUrl(state: DaemonState, pathname = "/"): string {
   return new URL(pathname, state.baseUrl).toString();
 }
 
