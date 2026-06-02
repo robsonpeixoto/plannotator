@@ -156,7 +156,7 @@
 - **Session embedding:** `components/sessions/SessionSurface.tsx` mounts `ReviewAppEmbedded` or `PlanAppEmbedded` by `session.mode`, wrapped in `SessionProvider`; imports both apps' CSS.
 - **Landing/dashboard:** `components/landing/LandingPage.tsx` (~737 lines) — **three-pane translateX carousel**: (0) project selector + `ConjoinedSessionsHistory`, (1) `git-dashboard/GitDashboard`, (2) `FullSessionsHistoryView`. ASCII banner; `ProjectTable`/`ProjectNode` (PRs tab via `buildStacks`, Worktrees tab); `ActiveSessionRow`/`HistoryRow`.
 - **Sidebar:** `components/sidebar/AppSidebar.tsx` (project→worktree→session tree, depth indent via `row-style.ts`, Radix collapsible), `SidebarPeek.tsx` (hover-reveal when collapsed), `components/ui/sidebar.tsx` (244px desktop / 260px mobile / 3rem icon, breakpoint 1024px, localStorage `sidebar_state`).
-- **Daemon integration:** `daemon/api/client.ts` (`DaemonApiClient`, Bearer auth), `daemon/events/*` (WebSocket hub → `event-store`, auto-reconnect/polling), `use-daemon-events.ts` (wired in Layout).
+- **Daemon integration:** `daemon/api/client.ts` (`DaemonApiClient`, no auth — daemon is open on localhost), `daemon/events/*` (WebSocket hub → `event-store`, auto-reconnect/polling), `use-daemon-events.ts` (wired in Layout).
 
 ---
 
@@ -183,7 +183,7 @@
 ## 14. Build
 
 - `apps/frontend/vite.config.ts`: plugins = TanStack Router, React, `@tailwindcss/vite`, **`vite-plugin-singlefile`**. Build target esnext, `assetsInlineLimit`/`chunkSizeWarningLimit` 100MB, `cssCodeSplit: false`, `inlineDynamicImports: true` → **one self-contained HTML** verified by `scripts/verify-single-file-build.ts` and embedded/served by the daemon binary.
-- Dev: port 3002, proxies `/daemon/*` and `/s/:id/api` to the discovered daemon (`~/.plannotator/daemon.json`, Bearer auth). `bun run dev:frontend`.
+- Dev: port 3002, proxies `/daemon/*` and `/s/:id/api` to the discovered daemon (`~/.plannotator/daemon.json`, no auth). `bun run dev:frontend`.
 - Path aliases: `@` → src; `@plannotator/{code-review,plan-review,ui,shared}` → packages (with `/styles` subpaths to each app's `index.css`).
 
 ---

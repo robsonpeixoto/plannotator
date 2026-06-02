@@ -77,7 +77,6 @@ Switch to a different app (e.g., VS Code or Finder) so the browser tab is not vi
 
 ```bash
 curl -s -X POST "http://localhost:${PORT}/daemon/sessions" \
-  -H "Authorization: Bearer ${AUTH}" \
   -H "Content-Type: application/json" \
   -d '{"request":{"action":"review","origin":"claude-code","cwd":"'$(pwd)'","args":""}}'
 ```
@@ -133,12 +132,12 @@ Create sessions for each mode and verify they all follow the same flow:
 ```bash
 # Annotate
 curl -s -X POST "http://localhost:${PORT}/daemon/sessions" \
-  -H "Authorization: Bearer ${AUTH}" -H "Content-Type: application/json" \
+  -H "Content-Type: application/json" \
   -d '{"request":{"action":"annotate","origin":"claude-code","cwd":"'$(pwd)'","markdown":"# Test annotation","filePath":"test.md"}}'
 
 # Archive
 curl -s -X POST "http://localhost:${PORT}/daemon/sessions" \
-  -H "Authorization: Bearer ${AUTH}" -H "Content-Type: application/json" \
+  -H "Content-Type: application/json" \
   -d '{"request":{"action":"archive","origin":"claude-code","cwd":"'$(pwd)'"}}'
 ```
 
