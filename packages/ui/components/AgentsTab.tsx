@@ -21,6 +21,8 @@ import { useAgentSettings } from '../hooks/useAgentSettings';
 // --- Agent option catalogs (shared across provider + tour-engine dropdowns) ---
 
 const CLAUDE_MODELS: Array<{ value: string; label: string }> = [
+  { value: 'claude-opus-4-8', label: 'Opus 4.8' },
+  { value: 'claude-opus-4-8[1m]', label: 'Opus 4.8 (1M)' },
   { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
   { value: 'claude-sonnet-4-6[1m]', label: 'Sonnet 4.6 (1M)' },
   { value: 'claude-opus-4-7', label: 'Opus 4.7' },
@@ -242,7 +244,7 @@ function SelectMenu({ value, options, onChange, icon, placeholder }: { value: st
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 bottom-full left-0 z-20 mb-1 max-h-56 overflow-y-auto rounded-xl bg-card p-1 shadow-[var(--card-shadow)] ring-1 ring-border/20">
+          <div className="absolute right-0 top-full left-0 z-20 mt-1 max-h-56 overflow-y-auto rounded-xl bg-card p-1 shadow-[var(--card-shadow)] ring-1 ring-border/20">
             {options.map((o) => (
               <button
                 key={o.value}
@@ -471,47 +473,9 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
 
   return (
     <div className="flex flex-col h-full">
-      {/* Job list (scrolls; launch controls are pinned below) */}
-      <div className="flex-1 overflow-y-auto p-2 space-y-1">
-        {sortedJobs.length === 0 ? (
-          <div className="flex flex-col items-center py-10 text-center">
-            <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-full bg-surface-1/50">
-              <ReviewAgentsIcon className="h-4 w-4 text-muted-foreground/40" />
-            </div>
-            <p className="text-[11px] text-muted-foreground/40">No agent jobs</p>
-            <p className="mt-0.5 text-[10px] text-muted-foreground/35">Launch an agent below</p>
-          </div>
-        ) : (
-          sortedJobs.map((job) => (
-            <JobCard
-              key={job.id}
-              job={job}
-              annotationCount={annotationCounts.get(job.source) ?? 0}
-              onKill={() => onKillJob(job.id)}
-              expanded={expandedJobId === job.id}
-              onToggle={() => setExpandedJobId(expandedJobId === job.id ? null : job.id)}
-              onViewDetails={onOpenJobDetail ? () => onOpenJobDetail(job.id) : undefined}
-            />
-          ))
-        )}
-      </div>
-
-      {/* Kill all — sits between the job list and the launch panel */}
-      {runningCount >= 2 && (
-        <div className="px-3 pb-2">
-          <button
-            onClick={onKillAll}
-            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-red-500/20 bg-red-500/5 py-1.5 font-medium text-[10px] text-red-600 transition-colors hover:bg-red-500/10 dark:text-red-400"
-          >
-            <Square size={8} />
-            Kill all ({runningCount})
-          </button>
-        </div>
-      )}
-
-      {/* Launch panel (pinned to the bottom, matches the prototype) */}
+      {/* Launch panel (pinned to the top) */}
       {availableProviders.length > 0 && (
-        <div className="border-t border-border/40 p-3">
+        <div className="border-b border-border/40 p-3">
           <div className="mb-2 font-medium text-[9px] uppercase tracking-wider text-muted-foreground/40">
             Launch agent
           </div>
@@ -607,6 +571,44 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
           >
             <Play size={11} />
             Run
+          </button>
+        </div>
+      )}
+
+      {/* Job list (scrolls; launch controls are pinned above) */}
+      <div className="flex-1 overflow-y-auto p-2 space-y-1">
+        {sortedJobs.length === 0 ? (
+          <div className="flex flex-col items-center py-10 text-center">
+            <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-full bg-surface-1/50">
+              <ReviewAgentsIcon className="h-4 w-4 text-muted-foreground/40" />
+            </div>
+            <p className="text-[11px] text-muted-foreground/40">No agent jobs</p>
+            <p className="mt-0.5 text-[10px] text-muted-foreground/35">Launch an agent above</p>
+          </div>
+        ) : (
+          sortedJobs.map((job) => (
+            <JobCard
+              key={job.id}
+              job={job}
+              annotationCount={annotationCounts.get(job.source) ?? 0}
+              onKill={() => onKillJob(job.id)}
+              expanded={expandedJobId === job.id}
+              onToggle={() => setExpandedJobId(expandedJobId === job.id ? null : job.id)}
+              onViewDetails={onOpenJobDetail ? () => onOpenJobDetail(job.id) : undefined}
+            />
+          ))
+        )}
+      </div>
+
+      {/* Kill all — pinned at the bottom */}
+      {runningCount >= 2 && (
+        <div className="px-3 pb-2 pt-1">
+          <button
+            onClick={onKillAll}
+            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-red-500/20 bg-red-500/5 py-1.5 font-medium text-[10px] text-red-600 transition-colors hover:bg-red-500/10 dark:text-red-400"
+          >
+            <Square size={8} />
+            Kill all ({runningCount})
           </button>
         </div>
       )}
