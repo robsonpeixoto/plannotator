@@ -121,9 +121,7 @@ export async function handleReviewCommand(
     opencodeClient: client,
     onReady: (url, isRemote, port) => {
       handleReviewServerReady(url, isRemote, port);
-      if (isRemote) {
-        client.app.log({ level: "info", message: `[Plannotator] Open in browser: ${url}` });
-      }
+      client.app.log({ level: "info", message: `[Plannotator] Open code review: ${url}` });
     },
   });
 
@@ -295,9 +293,7 @@ export async function handleAnnotateCommand(
     htmlContent,
     onReady: (url, isRemote, port) => {
       handleAnnotateServerReady(url, isRemote, port);
-      if (isRemote) {
-        client.app.log({ level: "info", message: `[Plannotator] Open in browser: ${url}` });
-      }
+      client.app.log({ level: "info", message: `[Plannotator] Open annotation UI: ${url}` });
     },
   });
 
@@ -406,9 +402,7 @@ export async function handleAnnotateLastCommand(
     htmlContent,
     onReady: (url, isRemote, port) => {
       handleAnnotateServerReady(url, isRemote, port);
-      if (isRemote) {
-        client.app.log({ level: "info", message: `[Plannotator] Open in browser: ${url}` });
-      }
+      client.app.log({ level: "info", message: `[Plannotator] Open annotation UI: ${url}` });
     },
   });
 
@@ -442,9 +436,7 @@ export async function handleArchiveCommand(
     htmlContent,
     onReady: (url, isRemote, port) => {
       handleServerReady(url, isRemote, port);
-      if (isRemote) {
-        client.app.log({ level: "info", message: `[Plannotator] Open in browser: ${url}` });
-      }
+      client.app.log({ level: "info", message: `[Plannotator] Open archive: ${url}` });
     },
   });
 

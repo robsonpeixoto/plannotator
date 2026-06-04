@@ -1,7 +1,7 @@
 /**
  * Plannotator CLI for Claude Code, Droid, Codex, Gemini CLI, and Copilot CLI
  *
- * Supports nine modes:
+ * Supports ten modes:
  *
  * 1. Plan Review (default, no args):
  *    - Spawned by Claude/Gemini/Codex hook entrypoints
@@ -41,7 +41,12 @@
  *    - Opens the bundled question or facts acceptance UI
  *    - Outputs structured JSON for setup-goal workflows
  *
- * 9. Improve Context (`plannotator improve-context`):
+ * 9. OpenCode Plan (`plannotator opencode-plan`):
+ *    - Internal bridge mode used by the OpenCode plugin CLI fallback
+ *    - Reads `{ plan, timeoutSeconds }` from stdin
+ *    - Outputs structured JSON for the plugin
+ *
+ * 10. Improve Context (`plannotator improve-context`):
  *    - Spawned by PreToolUse hook on EnterPlanMode
  *    - Reads improvement hook file from ~/.plannotator/hooks/
  *    - Returns additionalContext or silently passes through
@@ -1059,6 +1064,92 @@ if (args[0] === "sessions") {
 
   await Bun.sleep(500);
   server.stop();
+  process.exit(0);
+
+} else if (args[0] === "opencode-plan") {
+  // ============================================
+  // OPENCODE PLUGIN PLAN REVIEW MODE
+  // ============================================
+  //
+  // Internal CLI bridge used when the OpenCode plugin is running in a host
+  // that cannot import Bun-only server modules directly.
+
+  const inputJson = await Bun.stdin.text();
+  let input: { plan?: unknown; timeoutSeconds?: unknown };
+
+  try {
+    input = JSON.parse(inputJson);
+  } catch (error) {
+    console.error(`Failed to parse opencode-plan input: ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  }
+
+  const planContent = typeof input.plan === "string" ? input.plan : "";
+  if (!planContent.trim()) {
+    console.error("No plan content in opencode-plan input");
+    process.exit(1);
+  }
+
+  const timeoutSeconds = input.timeoutSeconds === null
+    ? null
+    : typeof input.timeoutSeconds === "number" && Number.isFinite(input.timeoutSeconds) && input.timeoutSeconds > 0
+      ? input.timeoutSeconds
+      : null;
+
+  const planProject = (await detectProjectName()) ?? "_unknown";
+  const server = await startPlannotatorServer({
+    plan: planContent,
+    origin: "opencode",
+    sharingEnabled,
+    shareBaseUrl,
+    pasteApiUrl,
+    htmlContent: planHtmlContent,
+    onReady: async (url, isRemote, port) => {
+      await handleServerReady(url, isRemote, port);
+
+      if (isRemote && sharingEnabled) {
+        await writeRemoteShareLink(planContent, shareBaseUrl, "review the plan", "plan only").catch(() => {});
+      }
+    },
+  });
+
+  registerSession({
+    pid: process.pid,
+    port: server.port,
+    url: server.url,
+    mode: "plan",
+    project: planProject,
+    startedAt: new Date().toISOString(),
+    label: `plan-${planProject}`,
+  });
+
+  const result = timeoutSeconds === null
+    ? await server.waitForDecision()
+    : await new Promise<Awaited<ReturnType<typeof server.waitForDecision>>>((resolve) => {
+        const timeoutId = setTimeout(
+          () =>
+            resolve({
+              approved: false,
+              feedback: `[Plannotator] No response within ${timeoutSeconds} seconds. Port released automatically. Please call submit_plan again.`,
+            }),
+          timeoutSeconds * 1000,
+        );
+
+        server.waitForDecision().then((decision) => {
+          clearTimeout(timeoutId);
+          resolve(decision);
+        });
+      });
+
+  await Bun.sleep(1500);
+  server.stop();
+
+  console.log(JSON.stringify({
+    approved: result.approved,
+    ...(result.feedback && { feedback: result.feedback }),
+    ...(result.savedPath && { savedPath: result.savedPath }),
+    ...(result.agentSwitch && { agentSwitch: result.agentSwitch }),
+  }));
   process.exit(0);
 
 } else if (args[0] === "copilot-plan") {
