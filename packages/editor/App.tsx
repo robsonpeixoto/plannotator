@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
 import { toast, Toaster } from 'sonner';
 import { type Origin, getAgentName } from '@plannotator/shared/agents';
-import { parseMarkdownToBlocks, exportAnnotations, exportLinkedDocAnnotations, exportEditorAnnotations, exportCodeFileAnnotations, extractFrontmatter, wrapFeedbackForAgent, Frontmatter, type LinkedDocAnnotationEntry } from '@plannotator/ui/utils/parser';
+import { parseMarkdownToBlocks, exportAnnotations, exportLinkedDocAnnotations, exportEditorAnnotations, exportCodeFileAnnotations, exportMessageAnnotations, extractFrontmatter, wrapFeedbackForAgent, Frontmatter, type LinkedDocAnnotationEntry, type MessageAnnotationEntry } from '@plannotator/ui/utils/parser';
 import { Viewer, ViewerHandle } from '@plannotator/ui/components/Viewer';
 import { HtmlViewer } from '@plannotator/ui/components/html-viewer';
 import { AnnotationPanel } from '@plannotator/ui/components/AnnotationPanel';
+import { DocumentAIChatPanel } from '@plannotator/ui/components/ai/DocumentAIChatPanel';
+import { SparklesIcon } from '@plannotator/ui/components/SparklesIcon';
 import { ExportModal } from '@plannotator/ui/components/ExportModal';
 import { ImportModal } from '@plannotator/ui/components/ImportModal';
 import { ConfirmDialog } from '@plannotator/ui/components/ConfirmDialog';
@@ -27,13 +29,22 @@ import {
 } from '@plannotator/ui/utils/identity';
 import { configStore } from '@plannotator/ui/config';
 import { CompletionOverlay } from '@plannotator/ui/components/CompletionOverlay';
-import { UpdateBanner } from '@plannotator/ui/components/UpdateBanner';
+import { useUpdateCheck } from '@plannotator/ui/hooks/useUpdateCheck';
+import { PlanAIAnnouncementDialog } from '@plannotator/ui/components/PlanAIAnnouncementDialog';
 import { getObsidianSettings, getEffectiveVaultPath, isObsidianConfigured, CUSTOM_PATH_SENTINEL } from '@plannotator/ui/utils/obsidian';
 import { getBearSettings } from '@plannotator/ui/utils/bear';
 import { getOctarineSettings, isOctarineConfigured } from '@plannotator/ui/utils/octarine';
 import { getDefaultNotesApp } from '@plannotator/ui/utils/defaultNotesApp';
 import { getAgentSwitchSettings, getEffectiveAgentName } from '@plannotator/ui/utils/agentSwitch';
 import { getPlanSaveSettings } from '@plannotator/ui/utils/planSave';
+import {
+  getAIProviderSettings,
+  resolveAIModelForProvider,
+  resolveAIProviderSelection,
+  saveAIProviderSelection,
+} from '@plannotator/ui/utils/aiProvider';
+import { markPlanAIAnnouncementSeen, needsPlanAIAnnouncement } from '@plannotator/ui/utils/planAIAnnouncement';
+import { useAIChat } from '@plannotator/ui/hooks/useAIChat';
 import { getUIPreferences, type UIPreferences, type PlanWidth } from '@plannotator/ui/utils/uiPreferences';
 import { getEditorMode, saveEditorMode } from '@plannotator/ui/utils/editorMode';
 import { getInputMethod, saveInputMethod } from '@plannotator/ui/utils/inputMethod';
@@ -55,7 +66,7 @@ import { ImageAnnotator } from '@plannotator/ui/components/ImageAnnotator';
 import { deriveImageName } from '@plannotator/ui/components/AttachmentsButton';
 import { useSidebar, type SidebarTab } from '@plannotator/ui/hooks/useSidebar';
 import { usePlanDiff, type VersionInfo } from '@plannotator/ui/hooks/usePlanDiff';
-import { useLinkedDoc } from '@plannotator/ui/hooks/useLinkedDoc';
+import { useLinkedDoc, type LinkedDocSessionState } from '@plannotator/ui/hooks/useLinkedDoc';
 import { useCodeFilePopout } from '@plannotator/ui/hooks/useCodeFilePopout';
 import { useAnnotationDraft } from '@plannotator/ui/hooks/useAnnotationDraft';
 import { useArchive } from '@plannotator/ui/hooks/useArchive';
@@ -76,9 +87,18 @@ import { generateId } from '@plannotator/ui/utils/generateId';
 import { SidebarTabs } from '@plannotator/ui/components/sidebar/SidebarTabs';
 import { SidebarContainer } from '@plannotator/ui/components/sidebar/SidebarContainer';
 import type { ArchivedPlan } from '@plannotator/ui/components/sidebar/ArchiveBrowser';
+import type { PickerMessage } from '@plannotator/ui/components/sidebar/MessagesBrowser';
 import { PlanDiffViewer } from '@plannotator/ui/components/plan-diff/PlanDiffViewer';
 import { CodeFilePopout, type CodeFileAnnotationInput } from '@plannotator/ui/components/CodeFilePopout';
 import type { PlanDiffMode } from '@plannotator/ui/components/plan-diff/PlanDiffModeSwitcher';
+import {
+  GoalSetupSurface,
+  type GoalSetupActionState,
+  type GoalSetupSurfaceHandle,
+} from '@plannotator/ui/components/goal-setup/GoalSetupSurface';
+import type { GoalSetupBundle } from '@plannotator/shared/goal-setup';
+import type { AIContext } from '@plannotator/ai';
+import type { CommentAskAIContext } from '@plannotator/ui/components/CommentPopover';
 // Demo content toggle. Default: the original Real-time Collaboration plan.
 // Opt-in diff-engine stress test: `VITE_DIFF_DEMO=1 bun run dev:hook` swaps
 // in the 20-case Auth Service Refactor test plan. dev-mock-api.ts reads the
@@ -102,6 +122,73 @@ type NoteAutoSaveResults = {
   obsidian?: boolean;
   bear?: boolean;
   octarine?: boolean;
+};
+
+type MessageAnnotationState = {
+  messageId: string;
+  text: string;
+  timestamp?: string;
+  linkedDocSession: LinkedDocSessionState;
+  codeAnnotations: CodeAnnotation[];
+  selectedCodeAnnotationId: string | null;
+};
+
+const countLinkedDocSessionAnnotations = (session: LinkedDocSessionState): number => {
+  let total =
+    session.root.annotations.length +
+    session.root.globalAttachments.length;
+  for (const doc of session.docs.values()) {
+    total += doc.annotations.length + doc.globalAttachments.length;
+  }
+  return total;
+};
+
+const countMessageAnnotations = (state: MessageAnnotationState): number =>
+  countLinkedDocSessionAnnotations(state.linkedDocSession) +
+  state.codeAnnotations.length;
+
+const createEmptyMessageState = (message: PickerMessage): MessageAnnotationState => ({
+  messageId: message.messageId,
+  text: message.text,
+  timestamp: message.timestamp,
+  linkedDocSession: {
+    root: {
+      markdown: message.text,
+      annotations: [],
+      selectedAnnotationId: null,
+      globalAttachments: [],
+    },
+    docs: new Map(),
+  },
+  codeAnnotations: [],
+  selectedCodeAnnotationId: null,
+});
+
+const normalizeMessageState = (
+  state: MessageAnnotationState,
+  message: PickerMessage,
+): MessageAnnotationState => ({
+  ...state,
+  text: message.text,
+  timestamp: message.timestamp,
+  linkedDocSession: {
+    root: {
+      ...state.linkedDocSession.root,
+      markdown: message.text,
+    },
+    docs: new Map(state.linkedDocSession.docs),
+  },
+});
+
+const buildMessageAnnotationCounts = (
+  states: Map<string, MessageAnnotationState>
+): Map<string, number> => {
+  const counts = new Map<string, number>();
+  for (const [messageId, state] of states) {
+    const count = countMessageAnnotations(state);
+    if (count > 0) counts.set(messageId, count);
+  }
+  return counts;
 };
 
 export interface AppProps {
@@ -151,7 +238,6 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
   const setAnnotations: React.Dispatch<React.SetStateAction<Annotation[]>> =
     annotationController.setAll ??
     ((_: React.SetStateAction<Annotation[]>) => {});
-
   const [codeAnnotations, setCodeAnnotations] = useState<CodeAnnotation[]>([]);
 
   useEffect(() => {
@@ -233,6 +319,7 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
   const [showAgentWarning, setShowAgentWarning] = useState(false);
   const [agentWarningMessage, setAgentWarningMessage] = useState('');
   const [isPanelOpen, setIsPanelOpen] = useState(() => window.innerWidth >= 768);
+  const [rightSidebarTab, setRightSidebarTab] = useState<'annotations' | 'ai'>('annotations');
   const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false);
   const [editorMode, setEditorMode] = useState<EditorMode>(getEditorMode);
   const [inputMethod, setInputMethod] = useState<InputMethod>(getInputMethod);
@@ -254,23 +341,6 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
   //   icon  → labels hidden                    — fallback below that
   const planAreaRef = useRef<HTMLDivElement>(null);
   const [actionsLabelMode, setActionsLabelMode] = useState<ActionsLabelMode>('full');
-  // useLayoutEffect + synchronous getBoundingClientRect so the initial
-  // bucket is set before the browser paints. Otherwise narrow viewports
-  // get a one-frame flash of "Global comment"/"Copy plan" labels before
-  // the ResizeObserver callback collapses them.
-  useLayoutEffect(() => {
-    const el = planAreaRef.current;
-    if (!el) return;
-    const bucket = (w: number): ActionsLabelMode =>
-      w >= 800 ? 'full' : w >= 680 ? 'short' : 'icon';
-    setActionsLabelMode(bucket(el.getBoundingClientRect().width));
-    const ro = new ResizeObserver(([entry]) => {
-      const next = bucket(entry.contentRect.width);
-      setActionsLabelMode((prev) => (prev === next ? prev : next));
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
   const [isApiMode, setIsApiMode] = useState(false);
   // Approve / Deny are a LOCAL (same-origin) capability. In room mode
   // the editor is served from room.plannotator.ai, which has no
@@ -284,10 +354,38 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
   const [origin, setOrigin] = useState<Origin | null>(null);
   const [gitUser, setGitUser] = useState<string | undefined>();
   const [isWSL, setIsWSL] = useState(false);
+  const updateInfo = useUpdateCheck();
+  const updateToastShown = useRef(false);
+  useEffect(() => {
+    if (window.location.hash) return;
+    if (updateInfo?.updateAvailable && !updateInfo.dismissed && !updateToastShown.current) {
+      updateToastShown.current = true;
+      const t = setTimeout(() => {
+        toast('A new version of Plannotator is available', {
+          description: 'Open the Options menu to update.',
+          duration: 4000,
+          classNames: { toast: '!w-auto', description: '!text-foreground/70' },
+        });
+      }, 1500);
+      return () => clearTimeout(t);
+    }
+  }, [updateInfo?.updateAvailable, updateInfo?.dismissed]);
   const [globalAttachments, setGlobalAttachments] = useState<ImageAttachment[]>([]);
   const [annotateMode, setAnnotateMode] = useState(false);
   const [gate, setGate] = useState(false);
   const [annotateSource, setAnnotateSource] = useState<'file' | 'message' | 'folder' | null>(null);
+  const [recentMessages, setRecentMessages] = useState<PickerMessage[]>([]);
+  const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
+  const messageStateCacheRef = useRef<Map<string, MessageAnnotationState>>(new Map());
+  const [cachedMessageAnnotationCounts, setCachedMessageAnnotationCounts] = useState<Map<string, number>>(new Map());
+  const [goalSetupBundle, setGoalSetupBundle] = useState<GoalSetupBundle | null>(null);
+  const goalSetupSurfaceRef = useRef<GoalSetupSurfaceHandle>(null);
+  const [goalSetupAction, setGoalSetupAction] = useState<GoalSetupActionState>({
+    canSubmit: false,
+    isSubmitting: false,
+    submitted: false,
+    submitLabel: 'Submit',
+  });
   const [sourceInfo, setSourceInfo] = useState<string | undefined>();
   const [sourceConverted, setSourceConverted] = useState(false);
   const [renderAs, setRenderAs] = useState<'markdown' | 'html'>('markdown');
@@ -311,6 +409,7 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
   const [wideModeType, setWideModeType] = useState<WideModeType | null>(null);
   const wideModeSnapshotRef = useRef<WideModeLayoutSnapshot | null>(null);
   const lastAppliedTocEnabledRef = useRef(uiPrefs.tocEnabled);
+  const goalSetupMode = goalSetupBundle !== null;
 
   useEffect(() => {
     document.title = repoInfo ? `${repoInfo.display} · Plannotator` : "Plannotator";
@@ -321,6 +420,19 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
   const [planDiffMode, setPlanDiffMode] = useState<PlanDiffMode>('clean');
   const [previousPlan, setPreviousPlan] = useState<string | null>(null);
   const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
+  const [aiSessionEnabled, setAISessionEnabled] = useState(false);
+  const [aiAvailable, setAiAvailable] = useState(false);
+  const [aiProviders, setAiProviders] = useState<Array<{ id: string; name: string; capabilities?: Record<string, boolean>; models?: Array<{ id: string; label: string; default?: boolean }> }>>([]);
+  const [aiConfig, setAIConfig] = useState(() => {
+    const saved = getAIProviderSettings();
+    const providerId = saved.providerId;
+    return {
+      providerId,
+      model: providerId ? (saved.preferredModels[providerId] ?? null) : null,
+      reasoningEffort: null as string | null,
+    };
+  });
+  const [showPlanAIAnnouncement, setShowPlanAIAnnouncement] = useState(needsPlanAIAnnouncement);
   const isMobile = useIsMobile();
 
   const viewerRef = useRef<ViewerHandle>(null);
@@ -441,10 +553,28 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
   const handleAnnotationPanelToggle = useCallback(() => {
     if (wideModeType !== null) {
       exitWideMode({ restore: false, panelOpen: true });
+      setRightSidebarTab('annotations');
       return;
     }
-    setIsPanelOpen(prev => !prev);
-  }, [exitWideMode, wideModeType]);
+    setRightSidebarTab('annotations');
+    setIsPanelOpen(prev => rightSidebarTab === 'annotations' ? !prev : true);
+  }, [exitWideMode, rightSidebarTab, wideModeType]);
+
+  const dismissPlanAIAnnouncement = useCallback(() => {
+    markPlanAIAnnouncementSeen();
+    setShowPlanAIAnnouncement(false);
+  }, []);
+
+  const handleAIChatToggle = useCallback(() => {
+    dismissPlanAIAnnouncement();
+    if (wideModeType !== null) {
+      exitWideMode({ restore: false, panelOpen: true });
+      setRightSidebarTab('ai');
+      return;
+    }
+    setRightSidebarTab('ai');
+    setIsPanelOpen(prev => rightSidebarTab === 'ai' ? !prev : true);
+  }, [dismissPlanAIAnnouncement, exitWideMode, rightSidebarTab, wideModeType]);
 
   // Sync sidebar open state when preference changes in Settings
   useEffect(() => {
@@ -613,8 +743,111 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
     }
   }, [sidebar.activeTab, showFilesTab, fileBrowserDirs, vaultPath]);
 
+  const buildCurrentMessageState = React.useCallback((): MessageAnnotationState | null => {
+    if (annotateSource !== 'message' || !selectedMessageId) return null;
+    const msg = recentMessages.find((m) => m.messageId === selectedMessageId);
+    if (!msg) return null;
+    const snapshot = linkedDocHook.snapshotSession();
+    return normalizeMessageState({
+      messageId: msg.messageId,
+      text: msg.text,
+      timestamp: msg.timestamp,
+      linkedDocSession: snapshot,
+      codeAnnotations: [...codeAnnotations],
+      selectedCodeAnnotationId,
+    }, msg);
+  }, [
+    annotateSource,
+    selectedMessageId,
+    recentMessages,
+    linkedDocHook.snapshotSession,
+    codeAnnotations,
+    selectedCodeAnnotationId,
+  ]);
+
+  const getMessageStatesWithCurrent = React.useCallback((): Map<string, MessageAnnotationState> => {
+    const states = new Map(messageStateCacheRef.current);
+    const current = buildCurrentMessageState();
+    if (current) states.set(current.messageId, current);
+    return states;
+  }, [buildCurrentMessageState]);
+
+  const saveCurrentMessageState = React.useCallback((): Map<string, MessageAnnotationState> => {
+    const states = getMessageStatesWithCurrent();
+    messageStateCacheRef.current = states;
+    setCachedMessageAnnotationCounts(buildMessageAnnotationCounts(states));
+    return states;
+  }, [getMessageStatesWithCurrent]);
+
+  const buildMessageAnnotationEntries = React.useCallback((): MessageAnnotationEntry[] => {
+    if (annotateSource !== 'message' || recentMessages.length === 0) return [];
+    const states = saveCurrentMessageState();
+    return recentMessages.map((msg) => {
+      const state = states.get(msg.messageId) ?? createEmptyMessageState(msg);
+      const linkedDocs: Map<string, LinkedDocAnnotationEntry> = new Map();
+      for (const [filepath, doc] of state.linkedDocSession.docs) {
+        linkedDocs.set(filepath, {
+          ...doc,
+          blocks: doc.markdown ? parseMarkdownToBlocks(doc.markdown) : undefined,
+        });
+      }
+      return {
+        messageId: msg.messageId,
+        text: msg.text,
+        timestamp: msg.timestamp,
+        annotations: state.linkedDocSession.root.annotations,
+        globalAttachments: state.linkedDocSession.root.globalAttachments,
+        blocks: parseMarkdownToBlocks(state.linkedDocSession.root.markdown),
+        linkedDocs,
+        codeAnnotations: state.codeAnnotations,
+      };
+    });
+  }, [annotateSource, recentMessages, saveCurrentMessageState]);
+
+  const activeMessageAnnotationCounts = React.useMemo(() => {
+    const counts = new Map(cachedMessageAnnotationCounts);
+    const current = buildCurrentMessageState();
+    if (current) {
+      const count = countMessageAnnotations(current);
+      if (count > 0) counts.set(current.messageId, count);
+      else counts.delete(current.messageId);
+    }
+    return counts;
+  }, [cachedMessageAnnotationCounts, buildCurrentMessageState]);
+
+  const messageFeedbackAnnotationCount = React.useMemo(
+    () => Array.from(activeMessageAnnotationCounts.values()).reduce((sum, count) => sum + count, 0),
+    [activeMessageAnnotationCounts]
+  );
+
+  const annotatedMessageIds = React.useMemo(
+    () => Array.from(activeMessageAnnotationCounts.keys()),
+    [activeMessageAnnotationCounts]
+  );
+
   // File browser file selection: open via linked doc system
   // For vault dirs (isVault), use the Obsidian doc endpoint; otherwise use generic /api/doc
+  const handleSelectMessage = React.useCallback((messageId: string) => {
+    const msg = recentMessages.find((m) => m.messageId === messageId);
+    if (!msg || messageId === selectedMessageId) return;
+
+    const states = saveCurrentMessageState();
+    const targetState = normalizeMessageState(
+      states.get(messageId) ?? createEmptyMessageState(msg),
+      msg,
+    );
+
+    setSelectedMessageId(messageId);
+    linkedDocHook.restoreSession(targetState.linkedDocSession);
+    setCodeAnnotations([...targetState.codeAnnotations]);
+    setSelectedCodeAnnotationId(targetState.selectedCodeAnnotationId);
+  }, [
+    recentMessages,
+    selectedMessageId,
+    saveCurrentMessageState,
+    linkedDocHook.restoreSession,
+  ]);
+
   const handleFileBrowserSelect = React.useCallback((absolutePath: string, dirPath: string) => {
     const dirState = fileBrowser.dirs.find(d => d.path === dirPath);
     const buildUrl = dirState?.isVault
@@ -735,12 +968,22 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
     : annotateSource === 'message' ? 'message'
     : 'plan';
 
+  // Viewer identity must change when the rendered document changes: web-highlighter
+  // mutates the Viewer DOM, so reconciling new content against the old subtree throws
+  // removeChild errors — a changed key remounts it cleanly instead. StickyHeaderLane
+  // observes a node inside Viewer, so it re-anchors off the same token.
+  const viewerContentKey = linkedDocHook.isActive
+    ? `doc:${linkedDocHook.filepath}`
+    : annotateSource === 'message' && selectedMessageId
+      ? `msg:${selectedMessageId}`
+      : 'plan';
+
   // Track active section for TOC highlighting
   const headingCount = useMemo(() => blocks.filter(b => b.type === 'heading').length, [blocks]);
   const activeSection = useActiveSection(containerRef, headingCount, scrollViewport);
 
   const { editorAnnotations, deleteEditorAnnotation } = useEditorAnnotations();
-  const { externalAnnotations, updateExternalAnnotation, deleteExternalAnnotation } = useExternalAnnotations<Annotation>({ enabled: isApiMode });
+  const { externalAnnotations, updateExternalAnnotation, deleteExternalAnnotation } = useExternalAnnotations<Annotation>({ enabled: isApiMode && !goalSetupMode });
 
   // Drive DOM highlights for SSE-delivered external annotations. Disabled
   // while a linked doc overlay is open (Viewer DOM is hidden) and while the
@@ -748,7 +991,7 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
   useExternalAnnotationHighlights({
     viewerRef,
     externalAnnotations,
-    enabled: isApiMode && !linkedDocHook.isActive && !isPlanDiffActive,
+    enabled: isApiMode && !goalSetupMode && !linkedDocHook.isActive && !isPlanDiffActive,
     planKey: markdown,
     surfaceGeneration: highlightSurfaceGeneration,
   });
@@ -788,20 +1031,32 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
   const viewerAnnotations = useMemo(() => allAnnotations.filter(a => !a.diffContext), [allAnnotations]);
   // Any-annotations flag used by Close/Approve/Send guards. Consolidates the
   // four-term check that was inlined across the annotate-mode header + keyboard paths.
+  const messageMultiSelectMode = annotateSource === 'message' && recentMessages.length > 1;
   const hasAnyAnnotations = useMemo(
-    () => allAnnotations.length > 0
-      || codeAnnotations.length > 0
-      || editorAnnotations.length > 0
-      || linkedDocHook.docAnnotationCount > 0
-      || globalAttachments.length > 0,
-    [allAnnotations.length, codeAnnotations.length, editorAnnotations.length, linkedDocHook.docAnnotationCount, globalAttachments.length],
+    () => messageMultiSelectMode
+      ? messageFeedbackAnnotationCount > 0 || editorAnnotations.length > 0
+      : allAnnotations.length > 0
+        || codeAnnotations.length > 0
+        || editorAnnotations.length > 0
+        || linkedDocHook.docAnnotationCount > 0
+        || globalAttachments.length > 0,
+    [
+      messageMultiSelectMode,
+      messageFeedbackAnnotationCount,
+      allAnnotations.length,
+      codeAnnotations.length,
+      editorAnnotations.length,
+      linkedDocHook.docAnnotationCount,
+      globalAttachments.length,
+    ],
   );
-  const feedbackAnnotationCount =
-    allAnnotations.length +
-    codeAnnotations.length +
-    editorAnnotations.length +
-    linkedDocHook.docAnnotationCount +
-    globalAttachments.length;
+  const feedbackAnnotationCount = messageMultiSelectMode
+    ? messageFeedbackAnnotationCount + editorAnnotations.length
+    : allAnnotations.length +
+      codeAnnotations.length +
+      editorAnnotations.length +
+      linkedDocHook.docAnnotationCount +
+      globalAttachments.length;
   // Code-file comments are intentionally not serialized into share URLs in v1.
   // Hide share entry points once they exist so we do not silently drop feedback.
   const canShareCurrentSession = sharingEnabled && !roomModeActive && codeAnnotations.length === 0;
@@ -841,12 +1096,32 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
     setRenderAs,
   );
 
+  // useLayoutEffect + synchronous getBoundingClientRect so the initial
+  // bucket is set before the browser paints. Otherwise narrow viewports
+  // get a one-frame flash of "Global comment"/"Copy plan" labels before
+  // the ResizeObserver callback collapses them.
+  useLayoutEffect(() => {
+    if (isLoading && !isSharedSession) return;
+
+    const el = planAreaRef.current;
+    if (!el) return;
+    const bucket = (w: number): ActionsLabelMode =>
+      w >= 800 ? 'full' : w >= 680 ? 'short' : 'icon';
+    setActionsLabelMode(bucket(el.getBoundingClientRect().width));
+    const ro = new ResizeObserver(([entry]) => {
+      const next = bucket(entry.contentRect.width);
+      setActionsLabelMode((prev) => (prev === next ? prev : next));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [isLoading, isSharedSession]);
+
   // Auto-save annotation drafts
   const { draftBanner, restoreDraft, dismissDraft } = useAnnotationDraft({
     annotations: allAnnotations,
     codeAnnotations,
     globalAttachments,
-    isApiMode,
+    isApiMode: isApiMode && !goalSetupMode,
     isSharedSession,
     submitted: !!submitted,
   });
@@ -931,12 +1206,17 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
         if (!res.ok) throw new Error('Not in API mode');
         return res.json();
       })
-      .then((data: { plan: string; origin?: Origin; mode?: 'annotate' | 'annotate-last' | 'annotate-folder' | 'archive'; filePath?: string; sourceInfo?: string; sourceConverted?: boolean; gate?: boolean; renderAs?: 'html' | 'markdown'; rawHtml?: string; sharingEnabled?: boolean; shareBaseUrl?: string; pasteApiUrl?: string; repoInfo?: { display: string; branch?: string; host?: string }; previousPlan?: string | null; versionInfo?: { version: number; totalVersions: number; project: string }; archivePlans?: ArchivedPlan[]; projectRoot?: string; isWSL?: boolean; serverConfig?: { displayName?: string; gitUser?: string } }) => {
+      .then((data: { plan: string; origin?: Origin; mode?: 'annotate' | 'annotate-last' | 'annotate-folder' | 'archive' | 'goal-setup'; goalSetup?: GoalSetupBundle; filePath?: string; sourceInfo?: string; sourceConverted?: boolean; gate?: boolean; renderAs?: 'html' | 'markdown'; rawHtml?: string; sharingEnabled?: boolean; shareBaseUrl?: string; pasteApiUrl?: string; repoInfo?: { display: string; branch?: string; host?: string }; previousPlan?: string | null; versionInfo?: { version: number; totalVersions: number; project: string }; archivePlans?: ArchivedPlan[]; projectRoot?: string; isWSL?: boolean; serverConfig?: { displayName?: string; gitUser?: string }; recentMessages?: PickerMessage[] }) => {
         // Initialize config store with server-provided values (config file > cookie > default)
         configStore.init(data.serverConfig);
+        setAISessionEnabled(data.mode !== 'archive' && data.mode !== 'goal-setup');
         // gitUser drives the "Use git name" button in Settings; stays undefined (button hidden) when unavailable
         setGitUser(data.serverConfig?.gitUser);
-        if (data.mode === 'archive') {
+        if (data.mode === 'goal-setup' && data.goalSetup) {
+          setGoalSetupBundle(data.goalSetup);
+          setMarkdown('');
+          setSharingEnabled(false);
+        } else if (data.mode === 'archive') {
           // Archive mode: show first archived plan or clear demo content
           setMarkdown(data.plan || '');
           if (data.archivePlans) archive.init(data.archivePlans);
@@ -961,8 +1241,19 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
         if (data.mode === 'annotate-folder') {
           sidebar.open('files');
         }
-        if (data.mode && data.mode !== 'archive') {
+        if (data.mode === 'annotate' || data.mode === 'annotate-last' || data.mode === 'annotate-folder') {
           setAnnotateSource(data.mode === 'annotate-last' ? 'message' : data.mode === 'annotate-folder' ? 'folder' : 'file');
+        }
+        if (data.mode === 'annotate-last' && data.recentMessages && data.recentMessages.length > 0) {
+          messageStateCacheRef.current = new Map();
+          setCachedMessageAnnotationCounts(new Map());
+          setRecentMessages(data.recentMessages);
+          setSelectedMessageId(data.recentMessages[0].messageId);
+        } else {
+          messageStateCacheRef.current = new Map();
+          setCachedMessageAnnotationCounts(new Map());
+          setRecentMessages([]);
+          setSelectedMessageId(null);
         }
         setSourceInfo(data.sourceInfo ?? undefined);
         setSourceConverted(!!data.sourceConverted);
@@ -997,7 +1288,7 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
         if (data.origin) {
           setOrigin(data.origin);
           // For Claude Code, check if user needs to configure permission mode
-          if (data.origin === 'claude-code' && needsPermissionModeSetup()) {
+          if (data.origin === 'claude-code' && data.mode !== 'goal-setup' && needsPermissionModeSetup()) {
             setShowPermissionModeSetup(true);
           }
           // Load saved permission mode preference
@@ -1010,9 +1301,54 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
       .catch(() => {
         // Not in API mode - use default content
         setIsApiMode(false);
+        setAISessionEnabled(false);
       })
       .finally(() => setIsLoading(false));
   }, [isLoadingShared, isSharedSession]);
+
+  useEffect(() => {
+    if (!aiSessionEnabled || !isApiMode || isSharedSession) {
+      setAiAvailable(false);
+      setAiProviders([]);
+      return;
+    }
+
+    let cancelled = false;
+    fetch('/api/ai/capabilities')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (cancelled) return;
+        if (data?.available) {
+          const providers = data.providers ?? [];
+          setAiAvailable(true);
+          setAiProviders(providers);
+          setAIConfig(prev => {
+            const saved = getAIProviderSettings();
+            const selection = resolveAIProviderSelection({
+              providers,
+              origin,
+              settings: saved,
+              serverDefaultProvider: data.defaultProvider ?? null,
+            });
+
+            if (prev.providerId === selection.providerId && prev.model === selection.model) return prev;
+
+            return { ...prev, providerId: selection.providerId, model: selection.model };
+          });
+        } else {
+          setAiAvailable(false);
+          setAiProviders([]);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAiAvailable(false);
+          setAiProviders([]);
+        }
+      });
+
+    return () => { cancelled = true; };
+  }, [aiSessionEnabled, isApiMode, isSharedSession, origin]);
 
   // Auto-save to notes apps on plan arrival (each gated by its autoSave toggle)
   const autoSaveAttempted = useRef(false);
@@ -1228,7 +1564,7 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
         (d) => d.annotations.length > 0 || d.globalAttachments.length > 0
       );
       if (allAnnotations.length > 0 || codeAnnotations.length > 0 || globalAttachments.length > 0 || hasDocAnnotations || editorAnnotations.length > 0) {
-        body.feedback = annotationsOutput;
+        body.feedback = messageMultiSelectMode ? buildFullAnnotationsOutput() : annotationsOutput;
       }
 
       const approveRes = await fetch('/api/approve', {
@@ -1257,7 +1593,7 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          feedback: annotationsOutput,
+          feedback: messageMultiSelectMode ? buildFullAnnotationsOutput() : annotationsOutput,
           planSave: {
             enabled: planSaveSettings.enabled,
             ...(planSaveSettings.customPath && { customPath: planSaveSettings.customPath }),
@@ -1406,13 +1742,19 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
   const handleAnnotateFeedback = async () => {
     setIsSubmitting(true);
     try {
+      const feedback = messageMultiSelectMode ? buildFullAnnotationsOutput() : annotationsOutput;
+      const scopedSelectedMessageId = messageMultiSelectMode
+        ? annotatedMessageIds.length === 1 ? annotatedMessageIds[0] : undefined
+        : selectedMessageId ?? undefined;
       await fetch('/api/feedback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          feedback: annotationsOutput,
+          feedback,
           annotations: allAnnotations,
           codeAnnotations,
+          ...(scopedSelectedMessageId ? { selectedMessageId: scopedSelectedMessageId } : {}),
+          ...(messageMultiSelectMode && annotatedMessageIds.length > 1 ? { feedbackScope: 'messages' } : {}),
         }),
       });
       setSubmitted('denied'); // reuse 'denied' state for "feedback sent" overlay
@@ -1421,7 +1763,7 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
     }
   };
 
-  // Annotate gate-mode handler — approves the artifact without feedback (#570)
+  // Annotate gate-mode handler — approves the artifact without feedback
   const handleAnnotateApprove = async () => {
     setIsSubmitting(true);
     try {
@@ -1447,28 +1789,60 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
     }
   }, []);
 
+  const handleGoalSetupSubmit = useCallback(() => {
+    goalSetupSurfaceRef.current?.submit();
+  }, []);
+
+  const handleGoalSetupExit = useCallback(async () => {
+    setIsExiting(true);
+    try {
+      const res = await fetch('/api/exit', { method: 'POST' });
+      if (res.ok) {
+        setSubmitted('exited');
+      } else {
+        throw new Error('Failed to exit');
+      }
+    } catch {
+      setIsExiting(false);
+    }
+  }, []);
+
   // Global keyboard shortcuts (Cmd/Ctrl+Enter to submit)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Only handle Cmd/Ctrl+Enter
       if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey)) return;
 
-      // Don't intercept if typing in an input/textarea
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      const isTextField = tag === 'INPUT' || tag === 'TEXTAREA' || Boolean(target?.isContentEditable);
+
+      // Let active confirmation dialogs own Cmd/Ctrl+Enter and Escape.
+      if (document.querySelector('[data-plannotator-confirm-dialog="true"]')) return;
 
       // Don't intercept if any modal is open
       if (showExport || showImport || showFeedbackPrompt || showClaudeCodeWarning ||
           showExitWarning || showAgentWarning || showPermissionModeSetup || pendingPasteImage) return;
 
       // Don't intercept if already submitted, submitting, or exiting
-      if (submitted || isSubmitting || isExiting) return;
+      if (submitted || isSubmitting || isExiting || goalSetupAction.isSubmitting) return;
 
       // Don't intercept in demo/share mode (no API)
       if (!isApiMode) return;
 
       // Don't submit while viewing a linked doc
       if (linkedDocHook.isActive) return;
+
+      if (goalSetupMode) {
+        if (document.querySelector('[data-comment-popover="true"]')) return;
+        if (isTextField && !target?.closest('.goal-shell')) return;
+        e.preventDefault();
+        if (goalSetupAction.canSubmit) goalSetupSurfaceRef.current?.submit();
+        return;
+      }
+
+      // Don't intercept if typing in an input/textarea outside goal setup.
+      if (isTextField) return;
 
       e.preventDefault();
 
@@ -1509,8 +1883,8 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
   }, [
     showExport, showImport, showFeedbackPrompt, showClaudeCodeWarning, showExitWarning, showAgentWarning,
     showPermissionModeSetup, pendingPasteImage,
-    submitted, isSubmitting, isExiting, isApiMode, linkedDocHook.isActive, annotations.length, codeAnnotations.length, externalAnnotations.length, annotateMode,
-    gate, hasAnyAnnotations,
+    submitted, isSubmitting, isExiting, goalSetupAction.isSubmitting, isApiMode, linkedDocHook.isActive, annotations.length, codeAnnotations.length, externalAnnotations.length, annotateMode,
+    gate, hasAnyAnnotations, goalSetupMode, goalSetupAction.canSubmit,
     origin, getAgentWarning,
   ]);
 
@@ -1669,6 +2043,17 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
     // This is just a placeholder for future custom logic
   };
 
+  const buildFullAnnotationsOutput = React.useCallback((): string => {
+    if (messageMultiSelectMode) {
+      let output = exportMessageAnnotations(buildMessageAnnotationEntries());
+      if (editorAnnotations.length > 0) {
+        output += `\n\n${exportEditorAnnotations(editorAnnotations)}`;
+      }
+      return output;
+    }
+    return '';
+  }, [messageMultiSelectMode, buildMessageAnnotationEntries, editorAnnotations]);
+
   const annotationsOutput = useMemo(() => {
     const docAnnotations = linkedDocHook.getDocAnnotations();
     const hasDocAnnotations = Array.from(docAnnotations.values()).some(
@@ -1687,8 +2072,6 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
       return 'User reviewed the document and has no feedback.';
     }
 
-    // Derive the conversion flag for the currently-displayed document:
-    // when viewing a linked doc, use that doc's isConverted; otherwise use the root flag.
     const activeConverted = linkedDocHook.isActive
       ? (docAnnotations.get(linkedDocHook.filepath ?? '')?.isConverted ?? false)
       : sourceConverted;
@@ -1718,8 +2101,6 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
     }
 
     if (hasDocAnnotations) {
-      // Parse blocks for each linked doc's cached markdown so the exporter
-      // can attach source line numbers per annotation.
       const enriched: Map<string, LinkedDocAnnotationEntry> = new Map(docAnnotations);
       for (const [filepath, entry] of enriched) {
         if (entry.markdown) {
@@ -1739,6 +2120,159 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
 
     return output;
   }, [blocks, allAnnotations, globalAttachments, roomModeActive, isMultiDocRoom, roomSession?.room?.docs, annotations, linkedDocHook.getDocAnnotations, editorAnnotations, codeAnnotations, sourceConverted, annotateSource, linkedDocHook.isActive, linkedDocHook.filepath]);
+
+  const aiAnnotationsContext = useMemo(
+    () => hasAnyAnnotations ? annotationsOutput : undefined,
+    [annotationsOutput, hasAnyAnnotations],
+  );
+
+  const aiDocumentPath = linkedDocHook.isActive
+    ? linkedDocHook.filepath ?? 'linked document'
+    : sourceFilePath ?? (annotateSource === 'message' ? 'agent message' : annotateSource === 'folder' ? 'folder document' : 'plan');
+  const aiSourceInfo = linkedDocHook.isActive ? linkedDocHook.filepath ?? undefined : sourceInfo;
+  const aiSourceConverted = linkedDocHook.isActive
+    ? (linkedDocHook.getDocAnnotations().get(linkedDocHook.filepath ?? '')?.isConverted ?? false)
+    : sourceConverted;
+  const aiRenderAs = linkedDocHook.isActive ? 'markdown' : renderAs;
+  const aiDocumentMode = annotateMode || linkedDocHook.isActive;
+  const hasAIDocumentContext =
+    !aiDocumentMode ||
+    annotateSource !== 'folder' ||
+    linkedDocHook.isActive ||
+    !!sourceFilePath;
+
+  const aiContext = useMemo<AIContext | null>(() => {
+    if (!aiSessionEnabled || archive.archiveMode || goalSetupMode) return null;
+    if (aiDocumentMode && !hasAIDocumentContext) return null;
+
+    if (aiDocumentMode) {
+      return {
+        mode: 'annotate',
+        annotate: {
+          content: aiRenderAs === 'html' && rawHtml ? rawHtml : markdown,
+          filePath: aiDocumentPath,
+          sourceInfo: aiSourceInfo,
+          sourceConverted: aiSourceConverted,
+          renderAs: aiRenderAs,
+          annotations: aiAnnotationsContext,
+        },
+      };
+    }
+
+    return {
+      mode: 'plan-review',
+      plan: {
+        plan: markdown,
+        previousPlan: previousPlan ?? undefined,
+        version: versionInfo?.version,
+        totalVersions: versionInfo?.totalVersions,
+        project: versionInfo?.project,
+        annotations: aiAnnotationsContext,
+      },
+    };
+  }, [
+    aiAnnotationsContext,
+    aiDocumentPath,
+    aiRenderAs,
+    aiSessionEnabled,
+    aiSourceConverted,
+    aiSourceInfo,
+    aiDocumentMode,
+    hasAIDocumentContext,
+    archive.archiveMode,
+    goalSetupMode,
+    markdown,
+    previousPlan,
+    rawHtml,
+    renderAs,
+    versionInfo,
+  ]);
+
+  const aiChat = useAIChat({
+    context: aiContext,
+    providerId: aiConfig.providerId,
+    model: aiConfig.model,
+    reasoningEffort: aiConfig.reasoningEffort,
+    threadTitle: aiDocumentMode ? 'Document chat' : 'Plan chat',
+  });
+  const {
+    messages: aiMessages,
+    isCreatingSession: aiIsCreatingSession,
+    isStreaming: aiIsStreaming,
+    permissionRequests: aiPermissionRequests,
+    respondToPermission: respondToAIPermission,
+    ask: askAI,
+    resetSession: resetAISession,
+    resetThread: resetAIThread,
+    sessionId: aiSessionId,
+  } = aiChat;
+  const canUseAI = aiAvailable && aiContext !== null;
+
+  const aiDocumentKey = aiContext
+    ? `${aiDocumentMode ? 'document' : 'plan'}:${aiRenderAs}:${aiDocumentPath}:${versionInfo?.version ?? 'current'}`
+    : 'none';
+  const previousAIDocumentKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!aiSessionEnabled) return;
+    if (previousAIDocumentKeyRef.current && previousAIDocumentKeyRef.current !== aiDocumentKey) {
+      resetAIThread();
+    }
+    previousAIDocumentKeyRef.current = aiDocumentKey;
+  }, [aiDocumentKey, aiSessionEnabled, resetAIThread]);
+
+  const handleAIConfigChange = useCallback((config: { providerId?: string | null; model?: string | null; reasoningEffort?: string | null }) => {
+    setAIConfig(prev => {
+      const saved = getAIProviderSettings();
+      const providerId = config.providerId !== undefined ? config.providerId : prev.providerId;
+      const providerChanged = config.providerId !== undefined && config.providerId !== prev.providerId;
+      const provider = aiProviders.find(p => p.id === providerId) ?? null;
+      const model = providerChanged
+        ? (config.model !== undefined ? config.model : resolveAIModelForProvider(provider, saved.preferredModels))
+        : (config.model !== undefined ? config.model : prev.model);
+      const next = { ...prev, ...config, providerId, model };
+      saveAIProviderSelection({
+        providerId: next.providerId,
+        model: next.model,
+        origin,
+        settings: saved,
+      });
+      return next;
+    });
+    resetAISession();
+  }, [aiProviders, origin, resetAISession]);
+
+  const openAIChat = useCallback(() => {
+    if (wideModeType !== null) {
+      exitWideMode({ restore: false, panelOpen: true });
+    }
+    setRightSidebarTab('ai');
+    setIsPanelOpen(true);
+  }, [exitWideMode, wideModeType]);
+
+  const handleOpenAIAnnouncement = useCallback(() => {
+    dismissPlanAIAnnouncement();
+    openAIChat();
+  }, [dismissPlanAIAnnouncement, openAIChat]);
+
+  const handleAskAI = useCallback((question: string, context?: CommentAskAIContext) => {
+    if (!canUseAI) return;
+    dismissPlanAIAnnouncement();
+    openAIChat();
+    askAI({
+      prompt: question,
+      scope: context ? {
+        kind: context.kind,
+        label: context.label,
+        text: context.text,
+        sourcePath: context.sourcePath ?? aiDocumentPath,
+      } : undefined,
+      contextUpdate: aiSessionId ? aiAnnotationsContext : undefined,
+    });
+  }, [aiAnnotationsContext, aiDocumentPath, aiSessionId, askAI, canUseAI, dismissPlanAIAnnouncement, openAIChat]);
+
+  const handleAskGeneralAI = useCallback((question: string) => {
+    handleAskAI(question, { kind: 'general', label: aiDocumentMode ? 'Document' : 'Plan', sourcePath: aiDocumentPath });
+  }, [aiDocumentMode, aiDocumentPath, handleAskAI]);
 
   // Bot callback config — read once from URL search params (?cb=&ct=)
   // TODO: bot callbacks post shareUrl which doesn't include code-file annotations.
@@ -1769,7 +2303,8 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
 
   // Quick-save handlers for export dropdown and keyboard shortcut
   const handleDownloadAnnotations = () => {
-    const blob = new Blob([annotationsOutput], { type: 'text/plain' });
+    const output = messageMultiSelectMode ? buildFullAnnotationsOutput() : annotationsOutput;
+    const blob = new Blob([output], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -2093,7 +2628,26 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
     return widths[uiPrefs.planWidth] ?? 832;
   }, [uiPrefs.planWidth]);
   const annotateReaderMaxWidth = canUseWideMode && wideModeType === 'wide' ? null : planMaxWidth;
+  const selectedAIProvider = aiProviders.find(provider => provider.id === aiConfig.providerId) ?? null;
+  const shouldShowPlanAIAnnouncement =
+    showPlanAIAnnouncement &&
+    canUseAI &&
+    aiSessionEnabled &&
+    isApiMode &&
+    !isSharedSession &&
+    !archive.archiveMode &&
+    !goalSetupMode &&
+    !showPermissionModeSetup &&
+    !submitted;
 
+
+  if (isLoading && !isSharedSession) {
+    return (
+      <ThemeProvider defaultTheme="dark">
+        <div className="h-screen bg-background" />
+      </ThemeProvider>
+    );
+  }
 
   return (
     <ThemeProvider defaultTheme="dark">
@@ -2103,12 +2657,19 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
           isApiMode={isApiMode}
           annotateMode={annotateMode}
           archiveMode={archive.archiveMode}
+          goalSetupMode={goalSetupMode}
+          goalSetupCanSubmit={goalSetupAction.canSubmit}
+          goalSetupIsSubmitting={goalSetupAction.isSubmitting}
+          goalSetupSubmitLabel={goalSetupAction.submitLabel}
           gate={gate}
           isSharedSession={isSharedSession}
           origin={origin}
           isSubmitting={isSubmitting}
           isExiting={isExiting}
-          isPanelOpen={isPanelOpen}
+          isPanelOpen={isPanelOpen && rightSidebarTab === 'annotations'}
+          aiAvailable={canUseAI}
+          isAIChatOpen={isPanelOpen && rightSidebarTab === 'ai'}
+          aiHasMessages={aiMessages.length > 0}
           hasAnyAnnotations={hasAnyAnnotations}
           linkedDocIsActive={linkedDocHook.isActive}
           callbackShareUrlReady={callbackConfig ? Boolean(shareUrl || shortShareUrl) : true}
@@ -2138,11 +2699,14 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
           onCallbackFeedback={handleCallbackFeedback}
           onCallbackApprove={handleCallbackApprove}
           onAnnotateExit={handleHeaderAnnotateExit}
+          onGoalSetupExit={handleGoalSetupExit}
+          onGoalSetupSubmit={handleGoalSetupSubmit}
           onAnnotateFeedback={handleHeaderAnnotateFeedback}
           onAnnotateApprove={handleHeaderAnnotateApprove}
           onFeedback={handleHeaderFeedback}
           onApprove={handleHeaderApprove}
           onAnnotationPanelToggle={handleAnnotationPanelToggle}
+          onAIChatToggle={handleAIChatToggle}
           onArchiveCopy={archive.copy}
           onArchiveDone={archive.done}
           onTaterModeChange={handleTaterModeChange}
@@ -2161,7 +2725,9 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
           onSaveToOctarine={handleSaveToOctarine}
           onStartLiveRoom={handleHeaderStartLiveRoom}
           appVersion={typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0'}
-          agentInstructionsEnabled={isApiMode && !archive.archiveMode && !annotateMode}
+          updateInfo={updateInfo}
+          isWSL={isWSL}
+          agentInstructionsEnabled={isApiMode && !archive.archiveMode && !annotateMode && !goalSetupMode}
           obsidianConfigured={isObsidianConfigured()}
           bearConfigured={getBearSettings().enabled}
           octarineConfigured={isOctarineConfigured()}
@@ -2202,20 +2768,22 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
           {/* Tater sprites — inside content wrapper so z-0 stacking context applies */}
           {taterMode && <TaterSpriteRunning />}
           {/* Left Sidebar: collapsed tab flags (when sidebar is closed) */}
-          {wideModeType === null && !sidebar.isOpen && (
+          {wideModeType === null && !sidebar.isOpen && !goalSetupMode && (
             <SidebarTabs
               activeTab={sidebar.activeTab}
               onToggleTab={toggleSidebarTab}
               hasDiff={planDiff.hasPreviousVersion}
               showVersionsTab={versionInfo !== null && versionInfo.totalVersions > 1}
               showFilesTab={hasFilesSurface}
+              showMessagesTab={annotateSource === 'message' && recentMessages.length > 1}
+              hasMessageAnnotations={activeMessageAnnotationCounts.size > 0}
               hasFileAnnotations={hasFilesSurfaceAnnotations}
               className="hidden lg:flex absolute left-0 top-0 z-10"
             />
           )}
 
           {/* Left Sidebar: open state (TOC or Version Browser) */}
-          {sidebar.isOpen && (
+          {sidebar.isOpen && !goalSetupMode && (
             <>
               <SidebarContainer
                 activeTab={sidebar.activeTab}
@@ -2262,11 +2830,16 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
                 isSelectingVersion={planDiff.isSelectingVersion}
                 fetchingVersion={planDiff.fetchingVersion}
                 onFetchVersions={planDiff.fetchVersions}
-                showArchiveTab={isApiMode && !annotateMode}
+                showArchiveTab={isApiMode && !annotateMode && !goalSetupMode}
                 archivePlans={archive.plans}
                 selectedArchiveFile={archive.selectedFile}
                 onArchiveSelect={archive.select}
                 isLoadingArchive={archive.isLoading}
+                showMessagesTab={annotateSource === 'message' && recentMessages.length > 1}
+                messages={recentMessages}
+                selectedMessageId={selectedMessageId}
+                onSelectMessage={handleSelectMessage}
+                messageAnnotationCounts={activeMessageAnnotationCounts}
               />
               <ResizeHandle {...tocResize.handleProps} className="hidden lg:block" side="left" />
             </>
@@ -2275,7 +2848,7 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
           {/* Document Area */}
           <OverlayScrollArea
             element="main"
-            className={`flex-1 min-w-0 ${isHtmlSurface ? 'bg-background' : `bg-grid ${!sidebar.isOpen && wideModeType === null ? 'lg:pl-[30px]' : ''}`}`}
+            className={`flex-1 min-w-0 ${isHtmlSurface ? 'bg-background' : `bg-grid ${!goalSetupMode && !sidebar.isOpen && wideModeType === null ? 'lg:pl-[30px]' : ''}`}`}
             data-print-region="document"
             onViewportReady={handleViewportReady}
           >
@@ -2295,8 +2868,9 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
                   of doc; original toolstrip/badges remain the source of
                   truth there. Hidden in plan diff or archive mode, or when
                   sticky actions are disabled. remountToken re-anchors the
-                  ResizeObserver when Viewer swaps content (linked docs). */}
-              {!isPlanDiffActive && !archive.archiveMode && !isHtmlSurface && uiPrefs.stickyActionsEnabled && (
+                  ResizeObserver when Viewer swaps content (linked docs or
+                  message switches). */}
+              {!goalSetupMode && !isPlanDiffActive && !archive.archiveMode && !isHtmlSurface && uiPrefs.stickyActionsEnabled && (
                 <StickyHeaderLane
                   inputMethod={inputMethod}
                   onInputMethodChange={handleInputMethodChange}
@@ -2310,12 +2884,12 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
                   onPlanDiffToggle={() => setIsPlanDiffActive(!isPlanDiffActive)}
                   archiveInfo={archive.currentInfo}
                   maxWidth={annotateReaderMaxWidth}
-                  remountToken={linkedDocHook.isActive ? `doc:${linkedDocHook.filepath}` : 'plan'}
+                  remountToken={viewerContentKey}
                 />
               )}
 
-              {/* Annotation Toolstrip (hidden during plan diff, archive mode, and HTML rooms) */}
-              {!isPlanDiffActive && !archive.archiveMode && !isHtmlSurface && (
+              {/* Annotation Toolstrip (hidden during plan diff, archive mode, goal setup, and HTML rooms) */}
+              {!goalSetupMode && !isPlanDiffActive && !archive.archiveMode && !isHtmlSurface && (
                 <div data-print-hide className="w-full mb-3 md:mb-4 flex items-center justify-start" style={annotateReaderMaxWidth == null ? undefined : { maxWidth: annotateReaderMaxWidth }}>
                   <AnnotationToolstrip
                     inputMethod={inputMethod}
@@ -2328,7 +2902,19 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
               )}
 
               {/* Plan Diff View — rendered when diff data exists, hidden when inactive */}
-              {planDiff.diffBlocks && planDiff.diffStats && (
+              {goalSetupBundle && (
+                <div className="w-full flex justify-center">
+                  <GoalSetupSurface
+                    ref={goalSetupSurfaceRef}
+                    bundle={goalSetupBundle}
+                    maxWidth={planMaxWidth}
+                    onActionStateChange={setGoalSetupAction}
+                    onSubmitted={() => setSubmitted('approved')}
+                  />
+                </div>
+              )}
+
+              {planDiff.diffBlocks && planDiff.diffStats && !goalSetupMode && (
                 <div className="w-full flex justify-center" style={{ display: isPlanDiffActive ? undefined : 'none' }}>
                   <PlanDiffViewer
                     diffBlocks={planDiff.diffBlocks}
@@ -2358,7 +2944,7 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
                 </div>
               )}
               {/* Folder annotation empty state — shown before user picks a file */}
-              {!multiDocRoomEmptyState && annotateSource === 'folder' && !markdown && !linkedDocHook.isActive && (
+              {!multiDocRoomEmptyState && annotateSource === 'folder' && !markdown && !linkedDocHook.isActive && !goalSetupMode && (
                 <div className="w-full flex justify-center">
                   <div className="w-full max-w-3xl p-12 text-center text-muted-foreground">
                     <p className="text-lg font-medium mb-2">Select a file to annotate</p>
@@ -2367,7 +2953,7 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
                 </div>
               )}
               {/* Normal Plan View — always mounted, hidden during diff mode */}
-              <div className={`w-full relative ${isHtmlSurface ? 'flex-1 flex flex-col' : 'flex justify-center'}`} style={{ display: multiDocRoomEmptyState || (isPlanDiffActive && planDiff.diffBlocks) || (annotateSource === 'folder' && !markdown && !linkedDocHook.isActive) ? 'none' : undefined }}>
+              <div className={`w-full relative ${isHtmlSurface ? 'flex-1 flex flex-col' : 'flex justify-center'}`} style={{ display: multiDocRoomEmptyState || goalSetupMode || (isPlanDiffActive && planDiff.diffBlocks) || (annotateSource === 'folder' && !markdown && !linkedDocHook.isActive) ? 'none' : undefined }}>
                 {canUseWideMode && !isPlanDiffActive && !archive.archiveMode && !isHtmlSurface && (
                   <div
                     data-print-hide
@@ -2415,10 +3001,11 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
                     onRemoveGlobalAttachment={roomModeActive ? undefined : handleRemoveGlobalAttachment}
                     maxWidth={isHtmlSurface ? null : annotateReaderMaxWidth}
                     fullViewport={isHtmlSurface}
+                    onAskAI={canUseAI ? handleAskAI : undefined}
                   />
                 ) : (
                   <Viewer
-                    key={linkedDocHook.isActive ? `doc:${linkedDocHook.filepath}` : 'plan'}
+                    key={viewerContentKey}
                     ref={viewerRef}
                     blocks={blocks}
                     markdown={markdown}
@@ -2434,7 +3021,7 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
                     globalAttachments={roomModeActive ? [] : globalAttachments}
                     onAddGlobalAttachment={roomModeActive ? undefined : handleAddGlobalAttachment}
                     onRemoveGlobalAttachment={roomModeActive ? undefined : handleRemoveGlobalAttachment}
-                    attachmentsEnabled={!roomModeActive}
+                    allowImages={!roomModeActive}
                     repoInfo={repoInfo}
                     stickyActions={uiPrefs.stickyActionsEnabled}
                     planDiffStats={linkedDocHook.isActive ? null : planDiff.diffStats}
@@ -2454,10 +3041,22 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
                     copyLabel={annotateSource === 'message' ? 'Copy message' : annotateSource === 'file' || annotateSource === 'folder' ? 'Copy file' : undefined}
                     archiveInfo={archive.currentInfo}
                     sourceInfo={sourceInfo}
+                    messagePickerInfo={
+                      annotateSource === 'message' && recentMessages.length > 1
+                        ? {
+                            // selectedMessageId is always one of recentMessages (set on init,
+                            // only changed via handleSelectMessage), so findIndex is >= 0.
+                            current: recentMessages.findIndex((m) => m.messageId === selectedMessageId) + 1,
+                            total: recentMessages.length,
+                            onOpen: () => sidebar.open('messages'),
+                          }
+                        : undefined
+                    }
                     onToggleCheckbox={checkbox.toggle}
                     checkboxOverrides={checkbox.overrides}
                     actionsLabelMode={actionsLabelMode}
                     onHighlightSurfaceReset={bumpHighlightSurfaceGeneration}
+                    onAskAI={canUseAI ? handleAskAI : undefined}
                   />
                 )}
               </div>
@@ -2465,11 +3064,11 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
           </OverlayScrollArea>
 
           {/* Resize Handle */}
-          {isPanelOpen && wideModeType === null && <ResizeHandle {...panelResize.handleProps} className="hidden md:block" side="right" />}
+          {isPanelOpen && wideModeType === null && !goalSetupMode && (rightSidebarTab === 'annotations' || canUseAI) && <ResizeHandle {...panelResize.handleProps} className="hidden md:block" side="right" />}
 
           {/* Annotation Panel */}
           <AnnotationPanel
-            isOpen={isPanelOpen && wideModeType === null}
+            isOpen={isPanelOpen && rightSidebarTab === 'annotations' && wideModeType === null && !goalSetupMode}
             blocks={blocks}
             annotations={allAnnotations}
             selectedId={selectedAnnotationId ?? selectedCodeAnnotationId}
@@ -2486,7 +3085,8 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
             onDeleteEditorAnnotation={deleteEditorAnnotation}
             onClose={() => setIsPanelOpen(false)}
             onQuickCopy={async () => {
-              await navigator.clipboard.writeText(wrapFeedbackForAgent(annotationsOutput));
+              const output = messageMultiSelectMode ? buildFullAnnotationsOutput() : annotationsOutput;
+              await navigator.clipboard.writeText(wrapFeedbackForAgent(output));
             }}
             onShare={canShareCurrentSession && (shareUrl || shortShareUrl) ? () => { setIsPanelOpen(false); setInitialExportTab('share'); setShowExport(true); } : undefined}
             otherFileAnnotations={otherFileAnnotations}
@@ -2514,6 +3114,50 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
             // the override Viewer uses to stamp new annotations.
             authorOverride={roomSession?.user?.name}
           />
+          {isPanelOpen && rightSidebarTab === 'ai' && wideModeType === null && !goalSetupMode && canUseAI && (
+            <aside
+              data-annotation-panel="true"
+              className={`border-l border-border/50 bg-card/30 backdrop-blur-sm flex flex-col flex-shrink-0 ${
+                isMobile ? 'fixed top-12 bottom-0 right-0 z-[60] w-full max-w-sm shadow-2xl bg-card' : ''
+              }`}
+              style={isMobile ? undefined : { width: panelResize.width ?? 288 }}
+            >
+              <div className="px-3 flex items-center border-b border-border/50" style={{ height: 'var(--panel-header-h)' }}>
+                <div className="flex items-center gap-2 w-full min-w-0">
+                  <button
+                    onClick={() => setIsPanelOpen(false)}
+                    className="flex items-center justify-center w-5 h-5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
+                    title="Close sidebar"
+                    aria-label="Close AI sidebar"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                    </svg>
+                  </button>
+                  <SparklesIcon className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                  <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground truncate">
+                    AI
+                  </h2>
+                  {aiMessages.length > 0 && (
+                    <span className="text-[10px] font-mono bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
+                      {aiMessages.length}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <DocumentAIChatPanel
+                messages={aiMessages}
+                isCreatingSession={aiIsCreatingSession}
+                isStreaming={aiIsStreaming}
+                onAskGeneral={handleAskGeneralAI}
+                permissionRequests={aiPermissionRequests}
+                onRespondToPermission={respondToAIPermission}
+                aiProviders={aiProviders}
+                aiConfig={aiConfig}
+                onAIConfigChange={handleAIConfigChange}
+              />
+            </aside>
+          )}
         </div>
         </ScrollViewportContext.Provider>
 
@@ -2543,7 +3187,7 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
           isGeneratingShortUrl={isGeneratingShortUrl}
           shortUrlError={shortUrlError}
           onGenerateShortUrl={generateShortUrl}
-          annotationsOutput={annotationsOutput}
+          annotationsOutput={showExport && messageMultiSelectMode ? buildFullAnnotationsOutput() : annotationsOutput}
           annotationCount={allAnnotations.length + codeAnnotations.length}
           taterSprite={taterMode ? <TaterSpritePullup /> : undefined}
           sharingEnabled={canShareCurrentSession}
@@ -2697,6 +3341,7 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
           title={
             archive.archiveMode ? 'Archive Closed'
             : submitted === 'exited' ? 'Session Closed'
+            : goalSetupMode ? 'Answers Submitted'
             : submitted === 'approved'
               ? (annotateMode ? 'Approved' : 'Plan Approved')
               : annotateMode ? 'Annotations Sent'
@@ -2707,6 +3352,8 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
               ? 'Annotation session closed without feedback.'
               : archive.archiveMode
                 ? 'You can reopen with plannotator archive.'
+                : goalSetupMode
+                  ? `${agentName} will use your answers to continue.`
                 : submitted === 'approved'
                   ? (annotateMode
                       ? `${agentName} will proceed.`
@@ -2718,8 +3365,13 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
           agentLabel={agentName}
         />
 
-        {/* Update notification */}
-        <UpdateBanner origin={origin} isWSL={isWSL} />
+        <PlanAIAnnouncementDialog
+          isOpen={shouldShowPlanAIAnnouncement}
+          origin={origin}
+          providerName={selectedAIProvider?.name ?? null}
+          onOpenAI={handleOpenAIAnnouncement}
+          onDismiss={dismissPlanAIAnnouncement}
+        />
 
         {/* Image Annotator for pasted images — not rendered in room mode
             because rooms don't support image uploads. The paste handler

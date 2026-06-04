@@ -29,6 +29,7 @@
     "./external-annotation": "./external-annotation.ts",
     "./agent-jobs": "./agent-jobs.ts",
     "./config": "./config.ts",
+    "./data-dir": "./data-dir.ts",
     "./prompts": "./prompts.ts",
     "./improvement-hooks": "./improvement-hooks.ts",
     "./pfm-reminder": "./pfm-reminder.ts",
@@ -43,7 +44,8 @@
     "./collab/validation": "./collab/validation.ts",
     "./annotate-args": "./annotate-args.ts",
     "./at-reference": "./at-reference.ts",
-    "./code-nav": "./code-nav.ts"
+    "./code-nav": "./code-nav.ts",
+    "./goal-setup": "./goal-setup.ts"
   },
   "dependencies": {
     "@joplin/turndown-plugin-gfm": "^1.0.64",

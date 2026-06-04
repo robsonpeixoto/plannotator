@@ -33,9 +33,10 @@ class ToolbarErrorBoundary extends React.Component<
   }
 }
 
-import { CommentPopover } from './CommentPopover';
+import { CommentPopover, type CommentAskAIContext } from './CommentPopover';
 import { TaterSpriteSitting } from './TaterSpriteSitting';
 import { AttachmentsButton } from './AttachmentsButton';
+import { MessagesIcon } from './icons/MessagesIcon';
 import { GraphvizBlock } from './GraphvizBlock';
 import { MermaidBlock } from './MermaidBlock';
 import { getImageSrc } from './ImageThumbnail';
@@ -93,48 +94,23 @@ interface ViewerProps {
   archiveInfo?: { status: 'approved' | 'denied' | 'unknown'; timestamp: string; title: string } | null;
   /** Source attribution for HTML/URL annotations (e.g. URL or filename) */
   sourceInfo?: string;
+  /**
+   * Message picker affordance — annotate-last mode only. Shown as a button in
+   * the sticky-top action bar so the user can switch to a different recent
+   * assistant message. Clicking opens the full picker in the left sidebar's
+   * Messages tab.
+   */
+  messagePickerInfo?: { current: number; total: number; onOpen: () => void };
   // Checkbox toggle props
   onToggleCheckbox?: (blockId: string, checked: boolean) => void;
   checkboxOverrides?: Map<string, boolean>;
-  /**
-   * When set, newly-created annotations stamp `author` with this
-   * value instead of the cookie-backed `getIdentity()`. Threaded
-   * from App in room mode so annotations carry the display name
-   * the participant typed into the JoinRoomGate — matches the
-   * name peers see on remote cursors/avatars.
-   */
   authorOverride?: string;
-  /**
-   * Default true. Passed to CommentPopover to hide the attachments
-   * UI when false. Used by App in room mode: Live Rooms V1 strips
-   * image attachments at room-create time and doesn't carry new
-   * attachments over the wire, so offering the affordance would
-   * silently drop the user's image.
-   */
-  attachmentsEnabled?: boolean;
-  /**
-   * When false, links to local documents (wikilinks like `[[foo]]`
-   * and markdown links to `*.md`/`*.mdx`/`*.html`) render as plain
-   * text instead of clickable anchors. Used by room mode because
-   * `room.plannotator.ai` has no `/api/doc` or Obsidian endpoint —
-   * clicking such a link would either trigger a broken fetch or
-   * navigate the room tab to a non-existent room-origin path.
-   * Non-local links (http/https) are unaffected.
-   */
+  allowImages?: boolean;
   localDocLinksEnabled?: boolean;
   availableDocs?: Set<string>;
   currentDocPath?: string;
-  /**
-   * Notifies the parent that the internal highlight surface has been
-   * (re)initialized or cleared. Fires once on initial highlighter
-   * construction and on each `clearAllHighlights()` call.
-   *
-   * The callback is a bare event — it carries no number. The parent
-   * owns the monotonic generation counter so a Viewer remount (which
-   * resets any Viewer-local state) still produces a fresh value that
-   * `setState` won't dedupe as a no-op.
-   */
   onHighlightSurfaceReset?: () => void;
+  onAskAI?: (question: string, context: CommentAskAIContext) => void;
 }
 
 export interface ViewerHandle {
@@ -207,14 +183,16 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
   actionsLabelMode = 'full',
   archiveInfo,
   sourceInfo,
+  messagePickerInfo,
   onToggleCheckbox,
   checkboxOverrides,
   authorOverride,
-  attachmentsEnabled = true,
+  allowImages = true,
   localDocLinksEnabled = true,
   availableDocs,
   currentDocPath,
   onHighlightSurfaceReset,
+  onAskAI,
 }, ref) => {
   const [copied, setCopied] = useState(false);
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
@@ -235,6 +213,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
   // anchor ids stay stable across re-renders and duplicate heading texts get
   // `-1`/`-2`/... suffixes rather than colliding on the same id.
   const headingSlugMap = useMemo(() => buildHeadingSlugMap(blocks), [blocks]);
+  const isTouchDevice = useMemo(() => window.matchMedia('(pointer: coarse)').matches, []);
   const [hoveredCodeBlock, setHoveredCodeBlock] = useState<{ block: Block; element: HTMLElement } | null>(null);
   const [isCodeBlockToolbarExiting, setIsCodeBlockToolbarExiting] = useState(false);
   const [hoveredTable, setHoveredTable] = useState<{ block: Block; element: HTMLElement } | null>(null);
@@ -245,6 +224,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
   const [viewerCommentPopover, setViewerCommentPopover] = useState<{
     anchorEl: HTMLElement;
     contextText: string;
+    selectedText?: string;
     initialText?: string;
     isGlobal: boolean;
     codeBlock?: { block: Block; element: HTMLElement };
@@ -310,6 +290,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
       setViewerCommentPopover({
         anchorEl: element,
         contextText: (codeEl.textContent || '').slice(0, 80),
+        selectedText: codeEl.textContent || '',
         isGlobal: false,
         codeBlock: { block: blocks.find(b => b.id === blockId)!, element },
       });
@@ -327,9 +308,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
   // Suppress native context menu on touch devices (prevents cut/copy/paste overlay on mobile)
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) return;
-    const isTouchPrimary = window.matchMedia('(pointer: coarse)').matches;
-    if (!isTouchPrimary) return;
+    if (!container || !isTouchDevice) return;
 
     const handleContextMenu = (e: Event) => {
       e.preventDefault();
@@ -402,30 +381,23 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
     return () => window.clearTimeout(timer);
   }, [blocks, locationHash, scrollToAnchor, stickyScrollViewport]);
 
-  // Cmd+C / Ctrl+C keyboard shortcut for copying selected text
+  // Use the native copy event so clipboard writes are synchronous (Safari
+  // rejects the async navigator.clipboard API outside the user-gesture window).
+  // web-highlighter clears the DOM selection on mouseup, so the browser has
+  // nothing to copy by the time Cmd+C fires — we inject the captured text here.
   useEffect(() => {
-    const handleKeyDown = async (e: KeyboardEvent) => {
-      // Check for Cmd+C (Mac) or Ctrl+C (Windows/Linux)
-      if ((e.metaKey || e.ctrlKey) && e.key === 'c') {
-        // Don't intercept if typing in an input/textarea
-        const tag = (e.target as HTMLElement)?.tagName;
-        if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+    const handleCopy = (e: ClipboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
 
-        // If we have an active selection with captured text, use that
-        if (toolbarState?.selectionText) {
-          e.preventDefault();
-          try {
-            await navigator.clipboard.writeText(toolbarState.selectionText);
-          } catch (err) {
-            console.error('Failed to copy:', err);
-          }
-        }
-        // Otherwise let the browser handle default copy behavior
+      if (toolbarState?.selectionText) {
+        e.preventDefault();
+        e.clipboardData?.setData('text/plain', toolbarState.selectionText);
       }
     };
 
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
+    document.addEventListener('copy', handleCopy);
+    return () => document.removeEventListener('copy', handleCopy);
   }, [toolbarState]);
 
   // Imperative handle — delegates to hook, extends removeHighlight for code blocks
@@ -526,6 +498,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
     setViewerCommentPopover({
       anchorEl: hoveredCodeBlock.element,
       contextText: codeText.slice(0, 80),
+      selectedText: codeText,
       initialText: initialChar,
       isGlobal: false,
       codeBlock: hoveredCodeBlock,
@@ -599,6 +572,22 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
 
         {/* Header buttons - top right */}
         <div data-print-hide data-sticky-actions className={`${stickyActions ? 'sticky top-3' : ''} z-30 float-right flex items-start gap-1 md:gap-2 rounded-lg p-1 md:p-2 transition-colors duration-150 ${isStuck ? 'bg-card/95 backdrop-blur-sm shadow-sm' : ''} -mr-3 mt-6 md:-mr-5 md:-mt-5 lg:-mr-7 lg:-mt-7 xl:-mr-9 xl:-mt-9`}>
+          {messagePickerInfo && (
+            <button
+              onClick={messagePickerInfo.onOpen}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground bg-muted/50 hover:bg-muted rounded-md transition-colors"
+              title="Pick a different message to annotate"
+            >
+              <MessagesIcon />
+              {actionsLabelMode === 'full' && (
+                <span>Message {messagePickerInfo.current} of {messagePickerInfo.total}</span>
+              )}
+              {actionsLabelMode === 'short' && (
+                <span>{messagePickerInfo.current}/{messagePickerInfo.total}</span>
+              )}
+            </button>
+          )}
+
           {/* Attachments button */}
           {onAddGlobalAttachment && onRemoveGlobalAttachment && (
             <AttachmentsButton
@@ -764,6 +753,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
               onRequestComment={handleRequestComment}
               onQuickLabel={handleQuickLabel}
               copyText={toolbarState.selectionText}
+              hideCopyButton={!isTouchDevice}
               closeOnScrollOut
             />
           </ToolbarErrorBoundary>
@@ -864,9 +854,16 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
             contextText={hookCommentPopover.contextText}
             isGlobal={false}
             initialText={hookCommentPopover.initialText}
-            attachmentsEnabled={attachmentsEnabled}
+            allowImages={allowImages}
             onSubmit={hookCommentSubmit}
             onClose={hookCommentClose}
+            onAskAI={onAskAI}
+            askAIContext={{
+              kind: 'selection',
+              label: 'Selected text',
+              text: hookCommentPopover.selectedText ?? hookCommentPopover.contextText,
+              sourcePath: linkedDocInfo?.filepath ?? sourceInfo,
+            }}
           />
         )}
         {viewerCommentPopover && (
@@ -875,9 +872,16 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
             contextText={viewerCommentPopover.contextText}
             isGlobal={viewerCommentPopover.isGlobal}
             initialText={viewerCommentPopover.initialText}
-            attachmentsEnabled={attachmentsEnabled}
+            allowImages={allowImages}
             onSubmit={handleViewerCommentSubmit}
             onClose={handleViewerCommentClose}
+            onAskAI={onAskAI}
+            askAIContext={{
+              kind: viewerCommentPopover.isGlobal ? 'general' : 'selection',
+              label: viewerCommentPopover.isGlobal ? 'Document' : 'Code block',
+              text: viewerCommentPopover.selectedText,
+              sourcePath: linkedDocInfo?.filepath ?? sourceInfo,
+            }}
           />
         )}
 
@@ -977,5 +981,4 @@ function groupBlocks(blocks: Block[]): RenderGroup[] {
   }
   return groups;
 }
-
 
