@@ -50,6 +50,8 @@ export interface FolderSessionInfo {
   files: FolderFileEntry[];
   preselectedPaths: Set<string>;
   annotationCounts: Map<string, number>;
+  rootName?: string;
+  rootPath?: string;
   /** Per-file count of annotations that carry images (will be stripped for rooms). */
   imageAnnotationCounts?: Map<string, number>;
 }
@@ -121,20 +123,65 @@ const FilePicker: React.FC<{
     [session.files, selected],
   );
   const overBudget = selectedBytes > MAX_RAW_BYTES;
+  const annotatedCount = session.preselectedPaths.size;
+  const rootLabel = session.rootName ?? 'Folder';
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <label className="text-xs font-medium uppercase text-muted-foreground">Files to share</label>
-        <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-          <button type="button" onClick={onSelectAnnotated} disabled={disabled} className="hover:text-foreground transition-colors">Annotated</button>
-          <span className="opacity-30">|</span>
-          <button type="button" onClick={onSelectAll} disabled={disabled} className="hover:text-foreground transition-colors">All</button>
-          <span className="opacity-30">|</span>
-          <button type="button" onClick={onClear} disabled={disabled} className="hover:text-foreground transition-colors">None</button>
+    <section className="flex min-h-0 flex-1 flex-col">
+      <div className="border-b border-border/50 px-4 py-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-foreground">Documents</span>
+              <span className="text-[10px] text-muted-foreground tabular-nums">
+                {selected.size}/{session.files.length} selected
+              </span>
+            </div>
+            <div className="mt-0.5 truncate text-[11px] text-muted-foreground" title={session.rootPath ?? rootLabel}>
+              {rootLabel}
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center overflow-hidden rounded-md border border-border/60 bg-background/60 text-[10px]">
+            <button
+              type="button"
+              onClick={onSelectAnnotated}
+              disabled={disabled || annotatedCount === 0}
+              className="px-2 py-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+            >
+              Annotated
+            </button>
+            <button
+              type="button"
+              onClick={onSelectAll}
+              disabled={disabled}
+              className="border-l border-border/60 px-2 py-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+            >
+              All
+            </button>
+            <button
+              type="button"
+              onClick={onClear}
+              disabled={disabled}
+              className="border-l border-border/60 px-2 py-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+            >
+              None
+            </button>
+          </div>
+        </div>
+        <div className="mt-3 space-y-1">
+          <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+            <div
+              className={`h-full rounded-full transition-all ${overBudget ? 'bg-destructive' : 'bg-primary/70'}`}
+              style={{ width: `${Math.min(100, (selectedBytes / MAX_RAW_BYTES) * 100)}%` }}
+            />
+          </div>
+          <div className={`flex items-center justify-between text-[11px] ${overBudget ? 'text-destructive' : 'text-muted-foreground'}`}>
+            <span className="tabular-nums">{formatBytes(selectedBytes)}</span>
+            <span className="tabular-nums">{formatBytes(MAX_RAW_BYTES)} limit</span>
+          </div>
         </div>
       </div>
-      <OverlayScrollArea className="border border-border rounded-lg max-h-[240px]">
+      <OverlayScrollArea className="min-h-[260px] flex-1">
         <FileTree
           nodes={tree}
           expandedFolders={expandedFolders}
@@ -186,16 +233,12 @@ const FilePicker: React.FC<{
           )}
         />
       </OverlayScrollArea>
-      <div className={`text-[11px] flex items-center justify-between ${overBudget ? 'text-destructive' : 'text-muted-foreground'}`}>
-        <span>{selected.size} file{selected.size === 1 ? '' : 's'} selected</span>
-        <span className="tabular-nums">{formatBytes(selectedBytes)} / {formatBytes(MAX_RAW_BYTES)}</span>
-      </div>
       {overBudget && (
-        <div className="text-[11px] text-destructive">
+        <div className="border-t border-destructive/20 bg-destructive/10 px-4 py-2 text-[11px] text-destructive">
           Selection exceeds the 5 MB limit. Deselect some files to continue.
         </div>
       )}
-    </div>
+    </section>
   );
 };
 
@@ -267,6 +310,91 @@ export function StartRoomModal({
     });
   }
 
+  const settingsFields = (
+    <>
+      <div className="space-y-2">
+        <label className="text-xs font-medium uppercase text-muted-foreground">Display name</label>
+        <input
+          type="text"
+          value={displayName}
+          onChange={e => setDisplayName(e.target.value)}
+          disabled={inFlight}
+          className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm outline-none transition-colors focus:border-ring"
+          placeholder="Your name"
+          autoFocus={!isFolder}
+        />
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-xs font-medium uppercase text-muted-foreground">Color</label>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {PRESENCE_SWATCHES.map(s => (
+            <button
+              key={s}
+              type="button"
+              disabled={inFlight}
+              onClick={() => setColor(s)}
+              className={`h-6 w-6 rounded-full border-2 transition-transform ${color === s ? 'border-foreground scale-105' : 'border-transparent'}`}
+              style={{ backgroundColor: s }}
+              aria-label={`Color ${s}`}
+            />
+          ))}
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-xs font-medium uppercase text-muted-foreground">Expires</label>
+        <select
+          value={expiresInDays}
+          onChange={e => setExpiresInDays(Number(e.target.value) as 0 | 1 | 7 | 30)}
+          disabled={inFlight}
+          className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm outline-none transition-colors focus:border-ring"
+        >
+          <option value={1}>1 day</option>
+          <option value={7}>7 days (default)</option>
+          <option value={30}>30 days</option>
+          <option value={0}>Never</option>
+        </select>
+      </div>
+    </>
+  );
+
+  const notices = (
+    <>
+      {strips && (
+        <div className="rounded-md border border-amber-500/20 bg-amber-500/10 p-2 text-xs text-amber-900 dark:text-amber-200">
+          <strong>Images won't travel.</strong>{' '}
+          {effectiveImageStrip} item{effectiveImageStrip === 1 ? '' : 's'} with image attachments will be stripped before sharing. Your local copies stay intact.
+        </div>
+      )}
+
+      {errorMessage && (
+        <div className="rounded-md border border-destructive/20 bg-destructive/10 p-2 text-xs text-destructive" role="alert">
+          {errorMessage}
+        </div>
+      )}
+    </>
+  );
+
+  const actions = (
+    <div className="flex items-center justify-end gap-2">
+      <button
+        type="button"
+        onClick={onCancel}
+        className="rounded-md px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+      >
+        Cancel
+      </button>
+      <button
+        type="submit"
+        disabled={inFlight || !displayName.trim() || overBudget || noFilesSelected}
+        className="rounded-md bg-foreground px-3 py-1.5 text-sm text-background transition-opacity disabled:opacity-50"
+      >
+        {ctaLabel}
+      </button>
+    </div>
+  );
+
   return (
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-background/80 backdrop-blur-sm p-4"
@@ -274,107 +402,57 @@ export function StartRoomModal({
     >
       <form
         onSubmit={handleSubmit}
-        className={`bg-card border border-border rounded-xl shadow-2xl max-w-[90vw] p-5 space-y-4 ${
-          isFolder ? 'w-[560px]' : 'w-[420px]'
+        className={`max-w-[90vw] overflow-hidden rounded-xl border border-border bg-card shadow-2xl ${
+          isFolder ? 'flex max-h-[min(86vh,760px)] w-[780px] flex-col' : 'w-[420px] space-y-4 p-5'
         }`}
       >
-        <div>
-          <h2 className="text-base font-semibold">
-            {isFolder ? 'Start a live folder session' : 'Start a live review session'}
-          </h2>
-          <p className="text-sm text-muted-foreground mt-1">
-            {isFolder
-              ? 'Choose which files to include. Collaborators see the selected documents and annotations in real time.'
-              : 'Share a link. Collaborators see your plan and annotations in real time. Their changes sync to you.'}
-          </p>
-        </div>
-
-        {folderSession && (
-          <FilePicker
-            session={folderSession}
-            selected={selectedFiles}
-            onToggle={handleToggle}
-            onSelectAnnotated={() => setSelectedFiles(new Set(folderSession.preselectedPaths))}
-            onSelectAll={() => setSelectedFiles(new Set(folderSession.files.map(f => f.path)))}
-            onClear={() => setSelectedFiles(new Set())}
-            disabled={inFlight}
-          />
-        )}
-
-        <div className="space-y-2">
-          <label className="text-xs font-medium uppercase text-muted-foreground">Display name</label>
-          <input
-            type="text"
-            value={displayName}
-            onChange={e => setDisplayName(e.target.value)}
-            disabled={inFlight}
-            className="w-full px-2 py-1 border rounded text-sm"
-            placeholder="Your name"
-            autoFocus={!isFolder}
-          />
-        </div>
-
-        <div className="space-y-2">
-          <label className="text-xs font-medium uppercase text-muted-foreground">Color</label>
-          <div className="flex items-center gap-1">
-            {PRESENCE_SWATCHES.map(s => (
-              <button
-                key={s}
-                type="button"
+        {isFolder && folderSession ? (
+          <>
+            <div className="border-b border-border/50 px-5 py-4">
+              <h2 className="text-base font-semibold">Start live room</h2>
+              <p className="mt-1 truncate text-sm text-muted-foreground" title={folderSession.rootPath}>
+                {folderSession.rootName ?? 'Folder'} folder session
+              </p>
+            </div>
+            <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[minmax(0,1fr)_230px]">
+              <FilePicker
+                session={folderSession}
+                selected={selectedFiles}
+                onToggle={handleToggle}
+                onSelectAnnotated={() => setSelectedFiles(new Set(folderSession.preselectedPaths))}
+                onSelectAll={() => setSelectedFiles(new Set(folderSession.files.map(f => f.path)))}
+                onClear={() => setSelectedFiles(new Set())}
                 disabled={inFlight}
-                onClick={() => setColor(s)}
-                className={`w-6 h-6 rounded-full border-2 ${color === s ? 'border-foreground' : 'border-transparent'}`}
-                style={{ backgroundColor: s }}
-                aria-label={`Color ${s}`}
               />
-            ))}
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <label className="text-xs font-medium uppercase text-muted-foreground">Expires</label>
-          <select
-            value={expiresInDays}
-            onChange={e => setExpiresInDays(Number(e.target.value) as 0 | 1 | 7 | 30)}
-            disabled={inFlight}
-            className="w-full px-2 py-1 border rounded text-sm"
-          >
-            <option value={1}>1 day</option>
-            <option value={7}>7 days (default)</option>
-            <option value={30}>30 days</option>
-            <option value={0}>Never</option>
-          </select>
-        </div>
-
-        {strips && (
-          <div className="text-xs bg-amber-50 text-amber-900 dark:bg-amber-900/20 dark:text-amber-200 p-2 rounded">
-            <strong>Images won't travel.</strong>{' '}
-            {effectiveImageStrip} item{effectiveImageStrip === 1 ? '' : 's'} with image attachments will be stripped before sharing. Your local copies stay intact.
-          </div>
+              <div className="space-y-4 border-t border-border/50 bg-muted/10 p-4 md:border-l md:border-t-0">
+                {settingsFields}
+                {notices}
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-3 border-t border-border/50 px-5 py-3">
+              <div className={`min-w-0 text-xs ${overBudget || noFilesSelected ? 'text-destructive' : 'text-muted-foreground'}`}>
+                {noFilesSelected
+                  ? 'Select at least one file.'
+                  : `${selectedFiles.size} file${selectedFiles.size === 1 ? '' : 's'} ready`}
+              </div>
+              {actions}
+            </div>
+          </>
+        ) : (
+          <>
+            <div>
+              <h2 className="text-base font-semibold">Start live review session</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Share a link. Collaborators see your plan and annotations in real time.
+              </p>
+            </div>
+            {settingsFields}
+            {notices}
+            <div className="pt-2">
+              {actions}
+            </div>
+          </>
         )}
-
-        {errorMessage && (
-          <div className="text-xs bg-destructive/10 text-destructive p-2 rounded" role="alert">
-            {errorMessage}
-          </div>
-        )}
-
-        <div className="flex items-center justify-end gap-2 pt-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="px-3 py-1.5 text-sm rounded hover:bg-muted"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={inFlight || !displayName.trim() || overBudget || noFilesSelected}
-            className="px-3 py-1.5 text-sm rounded bg-foreground text-background disabled:opacity-50"
-          >
-            {ctaLabel}
-          </button>
-        </div>
       </form>
     </div>
   );

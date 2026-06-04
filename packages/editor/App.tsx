@@ -1347,6 +1347,8 @@ const App: React.FC<AppProps> = ({ roomSession, activeDoc, setActiveDoc }) => {
       files: entries,
       preselectedPaths: preselected,
       annotationCounts: counts,
+      rootName: root.split('/').filter(Boolean).pop() ?? root,
+      rootPath: root,
       imageAnnotationCounts: imageCounts.size > 0 ? imageCounts : undefined,
     };
   }, [isFolderSession, projectRoot, fileBrowser.dirs, linkedDocHook]);
