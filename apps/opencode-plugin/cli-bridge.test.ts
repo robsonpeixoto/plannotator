@@ -1,7 +1,13 @@
 import { describe, expect, mock, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import {
+  buildAnnotateCliArgs,
   buildCliBridgeEnv,
+  buildCliSpawnConfig,
   buildReviewPromptFromBridgeOutcome,
+  formatUserFacingCliStderrLine,
   getRecentAssistantMessages,
 } from "./cli-bridge";
 
@@ -20,6 +26,66 @@ describe("OpenCode CLI bridge helpers", () => {
     expect(buildCliBridgeEnv({ sharingEnabled: true })).toEqual({
       PLANNOTATOR_SHARE: "enabled",
     });
+  });
+
+  test("builds annotate CLI args without folding flags into the path", () => {
+    const args = buildAnnotateCliArgs({
+      filePath: "https://example.com/docs",
+      rawFilePath: "https://example.com/docs",
+      gate: true,
+      json: false,
+      hook: false,
+      renderHtml: true,
+      noJina: true,
+    });
+
+    expect(args).toEqual([
+      "annotate",
+      "https://example.com/docs",
+      "--json",
+      "--gate",
+      "--render-html",
+      "--no-jina",
+    ]);
+  });
+
+  test("surfaces remote share-link stderr lines and ignores noisy stderr", () => {
+    expect(formatUserFacingCliStderrLine("  Open this link on your local machine to review the plan:")).toBe(
+      "Open this link on your local machine to review the plan:",
+    );
+    expect(formatUserFacingCliStderrLine("  https://share.plannotator.ai/#abc")).toBe(
+      "https://share.plannotator.ai/#abc",
+    );
+    expect(formatUserFacingCliStderrLine("  (1.2 KB - plan only, annotations added in browser)")).toBe(
+      "(1.2 KB - plan only, annotations added in browser)",
+    );
+    expect(formatUserFacingCliStderrLine("Fetching: https://example.com")).toBeUndefined();
+  });
+
+  test("resolves Windows CLI commands to an executable without shell mode", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "plannotator-cli-"));
+    try {
+      const exe = path.join(dir, "plannotator.exe");
+      writeFileSync(exe, "");
+
+      const config = buildCliSpawnConfig(
+        "plannotator",
+        ["annotate", "my notes.md", "--json"],
+        "win32",
+        {
+          PATH: dir,
+          PATHEXT: ".COM;.EXE;.BAT;.CMD",
+        },
+      );
+
+      expect(config).toEqual({
+        command: exe,
+        args: ["annotate", "my notes.md", "--json"],
+        shell: false,
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("collects recent assistant messages newest-first with ids and timestamps", async () => {

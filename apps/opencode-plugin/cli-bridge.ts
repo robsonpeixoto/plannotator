@@ -3,7 +3,7 @@ import { existsSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { parseAnnotateArgs } from "@plannotator/shared/annotate-args";
+import { parseAnnotateArgs, type ParsedAnnotateArgs } from "@plannotator/shared/annotate-args";
 import {
   getAnnotateFileFeedbackPrompt,
   getAnnotateMessageFeedbackPrompt,
@@ -60,6 +60,12 @@ interface RunCliResult {
   exitCode: number | null;
 }
 
+interface CliSpawnConfig {
+  command: string;
+  args: string[];
+  shell: false;
+}
+
 interface CliAnnotateOutcome {
   decision?: "approved" | "dismissed" | "annotated";
   feedback?: string;
@@ -91,6 +97,58 @@ function log(client: OpenCodeClient, level: LogLevel, message: string): void {
 
 function getPlannotatorBin(): string {
   return process.env.PLANNOTATOR_BIN?.trim() || "plannotator";
+}
+
+function getWindowsPathCandidates(bin: string, env: NodeJS.ProcessEnv): string[] {
+  if (path.extname(bin)) return [bin];
+
+  const extensions = (env.PATHEXT || ".COM;.EXE;.BAT;.CMD")
+    .split(";")
+    .map((ext) => ext.trim().toLowerCase())
+    .filter(Boolean);
+  // The Windows installer ships plannotator.exe. Avoid auto-resolving .cmd/.bat
+  // shims because those require cmd.exe and would reintroduce shell tokenization.
+  const executableExtensions = extensions.filter((ext) => ext !== ".cmd" && ext !== ".bat");
+  const preferred = [".exe", ".com"];
+  const orderedExtensions = [
+    ...preferred.filter((ext) => executableExtensions.includes(ext)),
+    ...executableExtensions.filter((ext) => !preferred.includes(ext)),
+  ];
+
+  return [...orderedExtensions.map((ext) => `${bin}${ext}`), bin];
+}
+
+export function resolveWindowsCliCommand(bin: string, env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const pathValue = env.PATH || "";
+  if (!pathValue) return undefined;
+
+  const candidates = getWindowsPathCandidates(bin, env);
+  for (const dir of pathValue.split(path.delimiter)) {
+    if (!dir) continue;
+    for (const candidate of candidates) {
+      const fullPath = path.join(dir, candidate);
+      if (existsSync(fullPath)) return fullPath;
+    }
+  }
+
+  return undefined;
+}
+
+export function buildCliSpawnConfig(
+  bin: string,
+  args: string[],
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+): CliSpawnConfig {
+  if (platform === "win32" && !path.isAbsolute(bin)) {
+    return {
+      command: resolveWindowsCliCommand(bin, env) || bin,
+      args,
+      shell: false,
+    };
+  }
+
+  return { command: bin, args, shell: false };
 }
 
 function parseLastJson<T>(stdout: string): T {
@@ -135,6 +193,41 @@ function logCliWarnings(client: OpenCodeClient, stderr: string): void {
   }
 }
 
+export function formatUserFacingCliStderrLine(line: string): string | undefined {
+  const trimmed = line.trim();
+  if (!trimmed) return undefined;
+  if (/^Open this link on your local machine to\b/.test(trimmed)) return trimmed;
+  if (/^https?:\/\/\S+/.test(trimmed)) return trimmed;
+  if (/^\(.+annotations added in browser\)$/.test(trimmed)) return trimmed;
+  return undefined;
+}
+
+function createCliStderrForwarder(client: OpenCodeClient) {
+  let pending = "";
+  const forwarded = new Set<string>();
+
+  const forwardLine = (line: string) => {
+    const message = formatUserFacingCliStderrLine(line);
+    if (!message || forwarded.has(message)) return;
+    forwarded.add(message);
+    log(client, "info", `[Plannotator] ${message}`);
+  };
+
+  return {
+    push(chunk: string) {
+      pending += chunk;
+      const lines = pending.split(/\r?\n/);
+      pending = lines.pop() ?? "";
+      for (const line of lines) forwardLine(line);
+    },
+    flush() {
+      if (!pending) return;
+      forwardLine(pending);
+      pending = "";
+    },
+  };
+}
+
 function logReadyFile(client: OpenCodeClient, readyFile: string, readyLabel: string, loggedUrls: Set<string>): void {
   if (!existsSync(readyFile)) return;
 
@@ -170,18 +263,20 @@ async function runPlannotatorCli(options: RunCliOptions): Promise<RunCliResult> 
   };
 
   const bin = getPlannotatorBin();
+  const spawnConfig = buildCliSpawnConfig(bin, options.args);
   log(options.client, "info", `[Plannotator] Starting ${options.readyLabel}...`);
 
   return await new Promise((resolve, reject) => {
-    const child = spawn(bin, options.args, {
+    const child = spawn(spawnConfig.command, spawnConfig.args, {
       cwd,
       env,
-      shell: process.platform === "win32" && !path.isAbsolute(bin),
+      shell: spawnConfig.shell,
       stdio: ["pipe", "pipe", "pipe"],
     });
 
     let stdout = "";
     let stderr = "";
+    const stderrForwarder = createCliStderrForwarder(options.client);
     const interval = setInterval(
       () => logReadyFile(options.client, readyFile, options.readyLabel, loggedUrls),
       250,
@@ -201,9 +296,11 @@ async function runPlannotatorCli(options: RunCliOptions): Promise<RunCliResult> 
     });
     child.stderr.on("data", (chunk) => {
       stderr += chunk;
+      stderrForwarder.push(chunk);
     });
     child.on("error", (error: NodeJS.ErrnoException) => {
       clearInterval(interval);
+      stderrForwarder.flush();
       logReadyFile(options.client, readyFile, options.readyLabel, loggedUrls);
       rmSync(readyFile, { force: true });
       if (error.code === "ENOENT") {
@@ -214,6 +311,7 @@ async function runPlannotatorCli(options: RunCliOptions): Promise<RunCliResult> 
     });
     child.on("close", (exitCode) => {
       clearInterval(interval);
+      stderrForwarder.flush();
       logReadyFile(options.client, readyFile, options.readyLabel, loggedUrls);
       rmSync(readyFile, { force: true });
       resolve({ stdout, stderr, exitCode });
@@ -221,6 +319,14 @@ async function runPlannotatorCli(options: RunCliOptions): Promise<RunCliResult> 
 
     child.stdin.end(options.input ?? "");
   });
+}
+
+export function buildAnnotateCliArgs(parsed: ParsedAnnotateArgs): string[] {
+  const args = ["annotate", parsed.rawFilePath, "--json"];
+  if (parsed.gate) args.push("--gate");
+  if (parsed.renderHtml) args.push("--render-html");
+  if (parsed.noJina) args.push("--no-jina");
+  return args;
 }
 
 export async function runCliPlanReview(input: {
@@ -386,17 +492,13 @@ export async function handleCliCommand(input: {
     if (input.command === "plannotator-annotate") {
       const parsed = parseAnnotateArgs(input.rawArgs);
       if (!parsed.filePath) {
-        log(input.client, "error", "Usage: /plannotator-annotate <file.md | file.html | https://... | folder/> [--gate] [--json]");
+        log(input.client, "error", "Usage: /plannotator-annotate <file.md | file.html | https://... | folder/> [--no-jina] [--gate] [--json]");
         return;
       }
 
-      const args = ["annotate", parsed.rawFilePath, "--json"];
-      if (parsed.gate) args.push("--gate");
-      if (parsed.renderHtml) args.push("--render-html");
-
       const result = await runPlannotatorCli({
         client: input.client,
-        args,
+        args: buildAnnotateCliArgs(parsed),
         cwd: input.cwd,
         readyLabel: "annotation UI",
         bridge: input.bridge,
