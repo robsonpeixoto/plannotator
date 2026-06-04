@@ -13,6 +13,15 @@ import { join } from "node:path";
 
 const scriptsDir = import.meta.dir;
 
+// The four always-installed core skills (apps/skills/core/*). Single list so
+// the copy assertions, sidecar checks, and frontmatter checks can't drift.
+const CORE_SKILLS = [
+  "plannotator-review",
+  "plannotator-annotate",
+  "plannotator-last",
+  "plannotator-archive",
+];
+
 describe("install.sh", () => {
   const script = readFileSync(join(scriptsDir, "install.sh"), "utf-8");
 
@@ -70,12 +79,7 @@ describe("install.sh", () => {
     expect(script).toContain("$HOME/.agents/skills");
     expect(script).toContain("copy_skill_if_present");
     // Core skills (all 4) -> Claude Code and the official OpenAI shared-agent path.
-    for (const skill of [
-      "plannotator-review",
-      "plannotator-annotate",
-      "plannotator-last",
-      "plannotator-archive",
-    ]) {
+    for (const skill of CORE_SKILLS) {
       expect(script).toContain(`copy_skill_if_present apps/skills/core/${skill} "$CLAUDE_SKILLS_DIR"`);
       expect(script).toContain(`copy_skill_if_present apps/skills/core/${skill} "$AGENTS_SKILLS_DIR"`);
     }
@@ -86,6 +90,18 @@ describe("install.sh", () => {
     expect(script).not.toContain('cp -r apps/skills/* "$CLAUDE_SKILLS_DIR/"');
     // git gate uses the spec's warning text.
     expect(script).toContain("git required for command/skill install — skipped");
+  });
+
+  test("old pinned tags soft-skip core skills without aborting command installs", () => {
+    // Regression guard: a --version tag that predates apps/skills/core must
+    // skip the core-skill copy with an accurate message — NOT abort the whole
+    // sparse-checkout subshell, which would also skip the OpenCode/Gemini
+    // command installs that follow it (and ps1/cmd would diverge).
+    expect(script).toContain("predates the core/extra skill layout");
+    expect(script).not.toMatch(/^\s*\[ -d "apps\/skills\/core" \]\s*$/m);
+    // Subshell failure (clone/network) gets its own honest message rather
+    // than falsely claiming git is missing.
+    expect(script).toContain("network or git error");
   });
 
   test("installs OpenCode and Gemini commands from the checkout, not heredocs", () => {
@@ -486,12 +502,7 @@ describe("install.cmd", () => {
 
 describe("Core Plannotator skills", () => {
   test("every core skill includes an OpenAI agent config sidecar", () => {
-    for (const skill of [
-      "plannotator-review",
-      "plannotator-annotate",
-      "plannotator-last",
-      "plannotator-archive",
-    ]) {
+    for (const skill of CORE_SKILLS) {
       const configPath = join(
         scriptsDir,
         "..",
@@ -511,12 +522,7 @@ describe("Core Plannotator skills", () => {
     // frontmatter line is the only thing keeping the core skills out of Pi's
     // system prompt (<available_skills>). Removing it from any core skill
     // silently reintroduces the context-bloat bug.
-    for (const skill of [
-      "plannotator-review",
-      "plannotator-annotate",
-      "plannotator-last",
-      "plannotator-archive",
-    ]) {
+    for (const skill of CORE_SKILLS) {
       const skillMd = readFileSync(
         join(scriptsDir, "..", "apps", "skills", "core", skill, "SKILL.md"),
         "utf-8",
