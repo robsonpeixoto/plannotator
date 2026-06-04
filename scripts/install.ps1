@@ -426,17 +426,16 @@ if (Get-Command git -ErrorAction SilentlyContinue) {
                 # Route each through Copy-SkillIfPresent (which pre-removes the
                 # existing target dir) so re-runs replace rather than nest,
                 # matching install.sh's per-skill structure.
-                if (Test-Path "apps\skills\core") {
-                    $coreItems = Get-ChildItem "apps\skills\core" -ErrorAction SilentlyContinue
-                    if ($coreItems) {
-                        New-Item -ItemType Directory -Force -Path $claudeSkillsDir | Out-Null
-                        New-Item -ItemType Directory -Force -Path $agentsSkillsDir | Out-Null
-                        foreach ($skill in @("plannotator-review", "plannotator-annotate", "plannotator-last", "plannotator-archive")) {
-                            Copy-SkillIfPresent "apps\skills\core\$skill" $claudeSkillsDir
-                            Copy-SkillIfPresent "apps\skills\core\$skill" $agentsSkillsDir
-                        }
-                        Write-Host "Installed core skills to $claudeSkillsDir\ and $agentsSkillsDir\"
+                if ((Test-Path "apps\skills\core") -and (Get-ChildItem "apps\skills\core" -ErrorAction SilentlyContinue)) {
+                    New-Item -ItemType Directory -Force -Path $claudeSkillsDir | Out-Null
+                    New-Item -ItemType Directory -Force -Path $agentsSkillsDir | Out-Null
+                    foreach ($skill in @("plannotator-review", "plannotator-annotate", "plannotator-last", "plannotator-archive")) {
+                        Copy-SkillIfPresent "apps\skills\core\$skill" $claudeSkillsDir
+                        Copy-SkillIfPresent "apps\skills\core\$skill" $agentsSkillsDir
                     }
+                    Write-Host "Installed core skills to $claudeSkillsDir\ and $agentsSkillsDir\"
+                } else {
+                    Write-Host "Tag $latestTag predates the core/extra skill layout — skipping core skill install"
                 }
 
                 # Kiro: hand-maintained skills (origin baked in) + two extras.
@@ -487,10 +486,10 @@ if (Get-Command git -ErrorAction SilentlyContinue) {
                 Pop-Location
             }
         } else {
-            Write-Host "git required for command/skill install — skipped"
+            Write-Host "Unable to fetch $repo at $latestTag (network or git error) — command/skill install skipped"
         }
     } catch {
-        Write-Host "git required for command/skill install — skipped"
+        Write-Host "Command/skill install failed: $($_.Exception.Message) — skipped"
     }
 
     Remove-Item -Recurse -Force $skillsTmp -ErrorAction SilentlyContinue

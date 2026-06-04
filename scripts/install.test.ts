@@ -537,6 +537,18 @@ describe("install shared behavior", () => {
   const sh = readFileSync(join(scriptsDir, "install.sh"), "utf-8");
   const ps = readFileSync(join(scriptsDir, "install.ps1"), "utf-8");
 
+  test("all installers explain the old-tag core-skill soft-skip", () => {
+    // A --version tag predating apps/skills/core must be diagnosed in every
+    // installer, not just bash — a silent skip leaves Windows users with no
+    // skills and no explanation.
+    const cmdScript = readFileSync(join(scriptsDir, "install.cmd"), "utf-8");
+    expect(sh).toContain("predates the core/extra skill layout");
+    expect(ps).toContain("predates the core/extra skill layout");
+    expect(cmdScript).toContain("predates the core/extra skill layout");
+    // ps1's clone-failure branch must not blame git when git is present.
+    expect(ps).toContain("network or git error");
+  });
+
   test("install.sh has three-layer opt-in resolution", () => {
     // Layer 3: config file via grep, respecting PLANNOTATOR_DATA_DIR
     expect(sh).toContain("PLANNOTATOR_DATA_DIR");

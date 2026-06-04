@@ -529,6 +529,8 @@ if !ERRORLEVEL! equ 0 (
                 )
             )
             echo Installed core skills to !CLAUDE_SKILLS_DIR!\ and !AGENTS_SKILLS_DIR!\
+        ) else (
+            echo Tag !TAG! predates the core/extra skill layout — skipping core skill install
         )
 
         REM OpenCode command stubs -> always (plugin intercepts execution).

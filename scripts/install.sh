@@ -683,12 +683,16 @@ if command -v git &>/dev/null; then
         fi
 
         # OpenCode slash command stubs (the plugin intercepts execution) —
-        # always installed from the checkout.
-        copy_commands_if_present apps/opencode-plugin/commands "$OPENCODE_COMMANDS_DIR"
-        echo "Installed OpenCode commands to ${OPENCODE_COMMANDS_DIR}/"
+        # always installed when the checkout provides them. Guard the echo on
+        # the same condition as the copy so old pinned tags don't report a
+        # success that never happened (ps1/cmd already gate this way).
+        if [ -d "apps/opencode-plugin/commands" ] && [ -n "$(ls -A apps/opencode-plugin/commands 2>/dev/null)" ]; then
+            copy_commands_if_present apps/opencode-plugin/commands "$OPENCODE_COMMANDS_DIR"
+            echo "Installed OpenCode commands to ${OPENCODE_COMMANDS_DIR}/"
+        fi
 
         # Gemini native TOML commands — only when Gemini is present.
-        if [ -d "$HOME/.gemini" ]; then
+        if [ -d "$HOME/.gemini" ] && [ -d "apps/gemini/commands" ] && [ -n "$(ls -A apps/gemini/commands 2>/dev/null)" ]; then
             copy_commands_if_present apps/gemini/commands "$GEMINI_COMMANDS_DIR"
             echo "Installed Gemini commands to ${GEMINI_COMMANDS_DIR}/"
         fi
