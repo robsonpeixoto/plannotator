@@ -4,10 +4,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { parseAnnotateArgs } from "@plannotator/shared/annotate-args";
-import { parseReviewArgs } from "@plannotator/shared/review-args";
 import {
   getAnnotateFileFeedbackPrompt,
   getAnnotateMessageFeedbackPrompt,
+  getReviewApprovedPrompt,
+  getReviewDeniedSuffix,
 } from "@plannotator/shared/prompts";
 
 type LogLevel = "info" | "error";
@@ -29,6 +30,20 @@ export interface OpenCodePlanReviewResult {
   agentSwitch?: string;
 }
 
+export interface OpenCodeBridgeAgent {
+  name: string;
+  description?: string;
+  mode?: string;
+  hidden?: boolean;
+}
+
+export interface OpenCodeBridgeContext {
+  sharingEnabled?: boolean;
+  shareBaseUrl?: string;
+  pasteApiUrl?: string;
+  agents?: OpenCodeBridgeAgent[];
+}
+
 interface RunCliOptions {
   client: OpenCodeClient;
   args: string[];
@@ -36,6 +51,7 @@ interface RunCliOptions {
   input?: string;
   readyLabel: string;
   extraEnv?: Record<string, string | undefined>;
+  bridge?: OpenCodeBridgeContext;
 }
 
 interface RunCliResult {
@@ -47,6 +63,22 @@ interface RunCliResult {
 interface CliAnnotateOutcome {
   decision?: "approved" | "dismissed" | "annotated";
   feedback?: string;
+  selectedMessageId?: string;
+  feedbackScope?: "message" | "messages";
+}
+
+export interface CliReviewOutcome {
+  decision?: "approved" | "dismissed" | "annotated";
+  approved?: boolean;
+  feedback?: string;
+  agentSwitch?: string;
+  isPRMode?: boolean;
+}
+
+export interface RecentAssistantMessage {
+  messageId: string;
+  text: string;
+  timestamp?: string;
 }
 
 function log(client: OpenCodeClient, level: LogLevel, message: string): void {
@@ -69,6 +101,38 @@ function parseLastJson<T>(stdout: string): T {
     return JSON.parse(line) as T;
   }
   throw new Error("Plannotator CLI did not return JSON.");
+}
+
+export function buildCliBridgeEnv(
+  bridge: OpenCodeBridgeContext | undefined,
+): Record<string, string | undefined> {
+  return {
+    ...(bridge?.sharingEnabled !== undefined && {
+      PLANNOTATOR_SHARE: bridge.sharingEnabled ? "enabled" : "disabled",
+    }),
+    ...(bridge?.shareBaseUrl && { PLANNOTATOR_SHARE_URL: bridge.shareBaseUrl }),
+    ...(bridge?.pasteApiUrl && { PLANNOTATOR_PASTE_URL: bridge.pasteApiUrl }),
+  };
+}
+
+function buildBridgePayload(bridge: OpenCodeBridgeContext | undefined): OpenCodeBridgeContext {
+  return {
+    ...(bridge?.sharingEnabled !== undefined && { sharingEnabled: bridge.sharingEnabled }),
+    ...(bridge?.shareBaseUrl && { shareBaseUrl: bridge.shareBaseUrl }),
+    ...(bridge?.pasteApiUrl && { pasteApiUrl: bridge.pasteApiUrl }),
+    ...(bridge?.agents && { agents: bridge.agents }),
+  };
+}
+
+function logCliWarnings(client: OpenCodeClient, stderr: string): void {
+  const warningLines = stderr
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => /\bwarn(?:ing)?\b/i.test(line));
+
+  for (const line of warningLines) {
+    log(client, "info", `[Plannotator] ${line}`);
+  }
 }
 
 function logReadyFile(client: OpenCodeClient, readyFile: string, readyLabel: string, loggedUrls: Set<string>): void {
@@ -98,6 +162,7 @@ async function runPlannotatorCli(options: RunCliOptions): Promise<RunCliResult> 
   const env = {
     ...process.env,
     ...options.extraEnv,
+    ...buildCliBridgeEnv(options.bridge),
     OPENCODE: "1",
     PLANNOTATOR_ORIGIN: "opencode",
     PLANNOTATOR_CWD: cwd,
@@ -163,6 +228,7 @@ export async function runCliPlanReview(input: {
   planContent: string;
   cwd?: string;
   timeoutSeconds: number | null;
+  bridge?: OpenCodeBridgeContext;
 }): Promise<OpenCodePlanReviewResult> {
   const result = await runPlannotatorCli({
     client: input.client,
@@ -171,14 +237,17 @@ export async function runCliPlanReview(input: {
     input: JSON.stringify({
       plan: input.planContent,
       timeoutSeconds: input.timeoutSeconds,
+      ...buildBridgePayload(input.bridge),
     }),
     readyLabel: "plan review",
+    bridge: input.bridge,
   });
 
   if (result.exitCode !== 0) {
     throw new Error(result.stderr.trim() || `Plannotator CLI exited with code ${result.exitCode}`);
   }
 
+  logCliWarnings(input.client, result.stderr);
   return parseLastJson<OpenCodePlanReviewResult>(result.stdout);
 }
 
@@ -186,12 +255,15 @@ async function injectSessionPrompt(
   client: OpenCodeClient,
   sessionId: string | undefined,
   text: string,
+  options?: { agent?: string; noReply?: boolean },
 ): Promise<void> {
   if (!sessionId || !text.trim()) return;
   try {
     await client.session?.prompt?.({
       path: { id: sessionId },
       body: {
+        ...(options?.agent && { agent: options.agent }),
+        ...(options?.noReply && { noReply: true }),
         parts: [{ type: "text", text }],
       },
     });
@@ -200,32 +272,65 @@ async function injectSessionPrompt(
   }
 }
 
-async function getLastAssistantMessage(client: OpenCodeClient, sessionId: string): Promise<string | null> {
+export async function getRecentAssistantMessages(
+  client: OpenCodeClient,
+  sessionId: string,
+  limit = 25,
+): Promise<RecentAssistantMessage[]> {
   const messagesResponse = await client.session?.messages?.({
     path: { id: sessionId },
   });
   const messages = messagesResponse?.data;
-  if (!messages) return null;
+  if (!messages) return [];
 
+  const recentMessages: RecentAssistantMessage[] = [];
   for (let i = messages.length - 1; i >= 0; i--) {
+    if (recentMessages.length >= limit) break;
     const msg = messages[i];
     if (msg.info?.role !== "assistant") continue;
     const textParts = (msg.parts ?? [])
       .filter((part: any) => part.type === "text" && part.text?.trim())
       .map((part: any) => part.text);
-    if (textParts.length > 0) return textParts.join("\n");
+    if (textParts.length === 0) continue;
+    recentMessages.push({
+      messageId: msg.info?.id ?? `opencode-${i}`,
+      text: textParts.join("\n"),
+      timestamp: msg.info?.time?.created ? new Date(msg.info.time.created).toISOString() : undefined,
+    });
   }
 
-  return null;
+  return recentMessages;
 }
 
-function buildReviewCliArgs(rawArgs: string): string[] {
-  const parsed = parseReviewArgs(rawArgs);
-  const args = ["review"];
-  if (parsed.prUrl) args.push(parsed.prUrl);
-  if (parsed.vcsType === "git") args.push("--git");
-  if (parsed.prUrl && !parsed.useLocal) args.push("--no-local");
-  return args;
+export function buildReviewPromptFromBridgeOutcome(outcome: CliReviewOutcome): {
+  message: string | null;
+  agent?: string;
+} {
+  if (outcome.decision === "dismissed") return { message: null };
+
+  const shouldSwitchAgent = outcome.agentSwitch && outcome.agentSwitch !== "disabled";
+  const targetAgent = shouldSwitchAgent ? outcome.agentSwitch : undefined;
+
+  if (outcome.approved || outcome.decision === "approved") {
+    return {
+      message: getReviewApprovedPrompt("opencode"),
+      ...(targetAgent && { agent: targetAgent }),
+    };
+  }
+
+  if (!outcome.feedback?.trim()) {
+    return {
+      message: null,
+      ...(targetAgent && { agent: targetAgent }),
+    };
+  }
+
+  return {
+    message: outcome.isPRMode
+      ? outcome.feedback
+      : `${outcome.feedback}${getReviewDeniedSuffix("opencode")}`,
+    ...(targetAgent && { agent: targetAgent }),
+  };
 }
 
 function getAnnotateFileHeader(filePath: string, cwd?: string): "File" | "Folder" {
@@ -247,23 +352,33 @@ export async function handleCliCommand(input: {
   sessionId?: string;
   rawArgs: string;
   cwd?: string;
+  bridge?: OpenCodeBridgeContext;
 }): Promise<void> {
   try {
     if (input.command === "plannotator-review") {
       const result = await runPlannotatorCli({
         client: input.client,
-        args: buildReviewCliArgs(input.rawArgs),
+        args: ["opencode-review"],
         cwd: input.cwd,
+        input: JSON.stringify({
+          arguments: input.rawArgs,
+          ...buildBridgePayload(input.bridge),
+        }),
         readyLabel: "code review",
+        bridge: input.bridge,
       });
       if (result.exitCode !== 0) {
         log(input.client, "error", result.stderr.trim() || `Plannotator CLI exited with code ${result.exitCode}`);
         return;
       }
 
-      const feedback = result.stdout.trim();
-      if (feedback && feedback !== "Review session closed without feedback.") {
-        await injectSessionPrompt(input.client, input.sessionId, feedback);
+      logCliWarnings(input.client, result.stderr);
+      const outcome = parseLastJson<CliReviewOutcome>(result.stdout);
+      const prompt = buildReviewPromptFromBridgeOutcome(outcome);
+      if (prompt.message) {
+        await injectSessionPrompt(input.client, input.sessionId, prompt.message, {
+          agent: prompt.agent,
+        });
       }
       return;
     }
@@ -284,12 +399,14 @@ export async function handleCliCommand(input: {
         args,
         cwd: input.cwd,
         readyLabel: "annotation UI",
+        bridge: input.bridge,
       });
       if (result.exitCode !== 0) {
         log(input.client, "error", result.stderr.trim() || `Plannotator CLI exited with code ${result.exitCode}`);
         return;
       }
 
+      logCliWarnings(input.client, result.stderr);
       const outcome = parseLastJson<CliAnnotateOutcome>(result.stdout);
       if (outcome.decision === "annotated" && outcome.feedback) {
         await injectSessionPrompt(
@@ -311,28 +428,31 @@ export async function handleCliCommand(input: {
         return;
       }
 
-      const lastText = await getLastAssistantMessage(input.client, input.sessionId);
-      if (!lastText) {
+      const recentMessages = await getRecentAssistantMessages(input.client, input.sessionId);
+      if (recentMessages.length === 0) {
         log(input.client, "error", "No assistant message found in session.");
         return;
       }
 
       const parsed = parseAnnotateArgs(input.rawArgs);
-      const args = ["annotate-last", "--stdin", "--json"];
-      if (parsed.gate) args.push("--gate");
-
       const result = await runPlannotatorCli({
         client: input.client,
-        args,
+        args: ["opencode-annotate-last"],
         cwd: input.cwd,
-        input: lastText,
+        input: JSON.stringify({
+          gate: parsed.gate,
+          recentMessages,
+          ...buildBridgePayload(input.bridge),
+        }),
         readyLabel: "annotation UI",
+        bridge: input.bridge,
       });
       if (result.exitCode !== 0) {
         log(input.client, "error", result.stderr.trim() || `Plannotator CLI exited with code ${result.exitCode}`);
         return;
       }
 
+      logCliWarnings(input.client, result.stderr);
       const outcome = parseLastJson<CliAnnotateOutcome>(result.stdout);
       if (outcome.decision === "annotated" && outcome.feedback) {
         await injectSessionPrompt(
@@ -350,9 +470,12 @@ export async function handleCliCommand(input: {
         args: ["archive"],
         cwd: input.cwd,
         readyLabel: "archive",
+        bridge: input.bridge,
       });
       if (result.exitCode !== 0) {
         log(input.client, "error", result.stderr.trim() || `Plannotator CLI exited with code ${result.exitCode}`);
+      } else {
+        logCliWarnings(input.client, result.stderr);
       }
     }
   } catch (error) {

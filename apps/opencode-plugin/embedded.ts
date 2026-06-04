@@ -1,14 +1,4 @@
-import {
-  startPlannotatorServer,
-  handleServerReady,
-} from "@plannotator/server";
-import {
-  handleReviewCommand,
-  handleAnnotateCommand,
-  handleAnnotateLastCommand,
-  handleArchiveCommand,
-  type CommandDeps,
-} from "./commands";
+import { recoverNativeFetchConstructors } from "./fetch-shim";
 
 export interface EmbeddedPlanReviewInput {
   client: any;
@@ -28,9 +18,20 @@ export interface EmbeddedPlanReviewResult {
   agentSwitch?: string;
 }
 
+async function loadPlanServer() {
+  recoverNativeFetchConstructors();
+  return await import("@plannotator/server");
+}
+
+async function loadCommandHandlers() {
+  recoverNativeFetchConstructors();
+  return await import("./commands");
+}
+
 export async function runEmbeddedPlanReview(
   input: EmbeddedPlanReviewInput,
 ): Promise<EmbeddedPlanReviewResult> {
+  const { startPlannotatorServer, handleServerReady } = await loadPlanServer();
   const server = await startPlannotatorServer({
     plan: input.planContent,
     origin: "opencode",
@@ -72,8 +73,23 @@ export async function runEmbeddedPlanReview(
 export async function handleEmbeddedCommand(
   command: string,
   event: any,
-  deps: CommandDeps,
+  deps: {
+    client: any;
+    htmlContent: string;
+    reviewHtmlContent: string;
+    getSharingEnabled: () => Promise<boolean>;
+    getShareBaseUrl: () => string | undefined;
+    getPasteApiUrl: () => string | undefined;
+    directory?: string;
+  },
 ): Promise<{ feedback?: string | null }> {
+  const {
+    handleReviewCommand,
+    handleAnnotateCommand,
+    handleAnnotateLastCommand,
+    handleArchiveCommand,
+  } = await loadCommandHandlers();
+
   if (command === "plannotator-last") {
     return { feedback: await handleAnnotateLastCommand(event, deps) };
   }

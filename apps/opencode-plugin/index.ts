@@ -20,25 +20,6 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-
-// OpenCode's @hono/node-server patches global.Response with a polyfill that
-// Bun.serve() doesn't accept (it checks native type tags, not instanceof).
-// This happens in "opencode web" and "opencode serve" modes, where
-// createAdaptorServer() runs before plugins load. Recover the native Response
-// from the polyfill's prototype chain — hono sets up:
-//   Object.setPrototypeOf(Response2.prototype, GlobalResponse.prototype)
-// so the parent prototype's constructor IS the original native Response.
-if (typeof Response !== "undefined" && typeof Request !== "undefined") {
-  const _proto = Object.getPrototypeOf(Response.prototype);
-  if (_proto?.constructor && _proto.constructor !== Response && _proto.constructor !== Object) {
-    globalThis.Response = _proto.constructor;
-    // Also fix Request — hono patches both with the same pattern
-    const _reqProto = Object.getPrototypeOf(Request.prototype);
-    if (_reqProto?.constructor && _reqProto.constructor !== Request && _reqProto.constructor !== Object) {
-      globalThis.Request = _reqProto.constructor;
-    }
-  }
-}
 import {
   getPlanDeniedPrompt,
   getPlanApprovedPrompt,
@@ -75,6 +56,7 @@ import {
 import {
   handleCliCommand,
   runCliPlanReview,
+  type OpenCodeBridgeContext,
   type OpenCodePlanReviewResult,
 } from "./cli-bridge";
 
@@ -199,6 +181,10 @@ function shouldUseEmbeddedRuntime(runtime: RuntimeMode): boolean {
   return runtime !== "cli" && hasEmbeddedRuntime();
 }
 
+function getEmbeddedRuntimeError(): string {
+  return "runtime \"embedded\" requires a Bun-hosted OpenCode plugin runtime. Use runtime \"auto\" or \"cli\" with this OpenCode host.";
+}
+
 function logPlannotatorReady(client: any, label: string, url: string): void {
   try {
     void client.app.log({ level: "info", message: `[Plannotator] Open ${label}: ${url}` });
@@ -252,7 +238,12 @@ async function runPlanReview(input: {
   htmlContent: string;
   timeoutSeconds: number | null;
   cwd?: string;
+  bridge: OpenCodeBridgeContext;
 }): Promise<OpenCodePlanReviewResult> {
+  if (input.runtime === "embedded" && !hasEmbeddedRuntime()) {
+    throw new Error(getEmbeddedRuntimeError());
+  }
+
   if (shouldUseEmbeddedRuntime(input.runtime)) {
     try {
       const embedded = await importEmbeddedRuntime();
@@ -282,6 +273,7 @@ async function runPlanReview(input: {
     planContent: input.planContent,
     cwd: input.cwd,
     timeoutSeconds: input.timeoutSeconds,
+    bridge: input.bridge,
   });
 }
 
@@ -314,6 +306,29 @@ const PlannotatorPlugin: Plugin = async (ctx, rawOptions?: PlannotatorOpenCodeOp
 
   function getPasteApiUrl(): string | undefined {
     return process.env.PLANNOTATOR_PASTE_URL || undefined;
+  }
+
+  async function getOpenCodeAgents(): Promise<any[] | undefined> {
+    try {
+      if (!cachedAgents) {
+        const response = await ctx.client.app.agents({
+          query: { directory: ctx.directory },
+        });
+        cachedAgents = response.data ?? [];
+      }
+      return cachedAgents;
+    } catch {
+      return undefined;
+    }
+  }
+
+  async function getBridgeContext(): Promise<OpenCodeBridgeContext> {
+    return {
+      sharingEnabled: await getSharingEnabled(),
+      shareBaseUrl: getShareBaseUrl(),
+      pasteApiUrl: getPasteApiUrl(),
+      agents: await getOpenCodeAgents(),
+    };
   }
 
   function getPlanTimeoutSeconds(): number | null {
@@ -533,12 +548,23 @@ Do NOT proceed with implementation until your plan is approved.`);
         }
       }
 
+      if (workflowOptions.runtime === "embedded" && !hasEmbeddedRuntime()) {
+        try {
+          void ctx.client.app.log({
+            level: "error",
+            message: `[Plannotator] ${getEmbeddedRuntimeError()}`,
+          });
+        } catch {}
+        return;
+      }
+
       await handleCliCommand({
         command: cmd,
         client: ctx.client,
         sessionId: input.sessionID,
         rawArgs: input.arguments ?? "",
         cwd: ctx.directory,
+        bridge: await getBridgeContext(),
       });
     },
   };
@@ -622,6 +648,7 @@ Use /plannotator-last or /plannotator-annotate for manual review, or set workflo
               htmlContent: getPlanHtml(),
               timeoutSeconds,
               cwd: ctx.directory,
+              bridge: await getBridgeContext(),
             });
           } catch (error) {
             return `[Plannotator] Failed to open plan review: ${error instanceof Error ? error.message : String(error)}`;
