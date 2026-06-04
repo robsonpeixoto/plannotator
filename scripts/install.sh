@@ -559,78 +559,6 @@ rm -rf "$HOME/.cache/opencode/node_modules/@plannotator" "$HOME/.cache/opencode/
 # Clear Pi jiti cache to force fresh download on next run
 rm -rf /tmp/jiti 2>/dev/null || true
 
-plannotator_shared_agent_skills_available() {
-    local agents_skills_dir="$HOME/.agents/skills"
-
-    [ -f "$agents_skills_dir/plannotator-compound/SKILL.md" ] &&
-        [ -f "$agents_skills_dir/plannotator-setup-goal/SKILL.md" ] &&
-        [ -f "$agents_skills_dir/plannotator-visual-explainer/SKILL.md" ]
-}
-
-configure_pi_plannotator_package_filter() {
-    local pi_agent_dir="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
-    local pi_settings="$pi_agent_dir/settings.json"
-
-    if [ ! -f "$pi_settings" ]; then
-        return 0
-    fi
-
-    if ! command -v node &>/dev/null; then
-        echo "Skipping Pi settings update (node not found)"
-        return 0
-    fi
-
-    node - "$pi_settings" <<'NODE' || echo "Skipping Pi settings update (could not rewrite settings.json)"
-const fs = require("fs");
-
-const settingsPath = process.argv[2];
-const packagePattern = /^(?:npm:)?@plannotator\/pi-extension(?:@.+)?$/;
-
-let settings;
-try {
-  settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
-} catch {
-  console.log("Skipping Pi settings update (could not parse settings.json)");
-  process.exit(0);
-}
-
-if (!settings || !Array.isArray(settings.packages)) {
-  process.exit(0);
-}
-
-let changed = false;
-settings.packages = settings.packages.map((entry) => {
-  if (typeof entry === "string" && packagePattern.test(entry)) {
-    changed = true;
-    return { source: entry, skills: [] };
-  }
-
-  if (
-    entry &&
-    typeof entry === "object" &&
-    typeof entry.source === "string" &&
-    packagePattern.test(entry.source)
-  ) {
-    if (!Array.isArray(entry.skills) || entry.skills.length !== 0) {
-      changed = true;
-      return { ...entry, skills: [] };
-    }
-  }
-
-  return entry;
-});
-
-if (!changed) {
-  process.exit(0);
-}
-
-const tmpPath = `${settingsPath}.${process.pid}.tmp`;
-fs.writeFileSync(tmpPath, `${JSON.stringify(settings, null, 2)}\n`);
-fs.renameSync(tmpPath, settingsPath);
-console.log("Configured Pi to use global Plannotator skills and skip bundled package skills.");
-NODE
-}
-
 update_pi_extension_if_present() {
     if ! command -v pi &>/dev/null; then
         return 0
@@ -638,146 +566,56 @@ update_pi_extension_if_present() {
 
     echo "Updating Pi extension..."
     if pi install npm:@plannotator/pi-extension; then
-        if plannotator_shared_agent_skills_available; then
-            configure_pi_plannotator_package_filter
-        else
-            echo "Leaving Pi bundled skills enabled (global Plannotator agent skills not found)."
-        fi
         echo "Pi extension updated."
     else
-        echo "Skipping Pi settings update (pi install failed)"
+        echo "Skipping Pi extension update (pi install failed)"
     fi
 }
 
-# Install /review slash command
+# --- Aggressive cleanup of skills/commands we no longer manage ---
+# Echo each removal; ignore missing entries.
+
+# Claude Code commands are deprecated in favor of skills. Remove any
+# previously-installed slash command files; the core skills in
+# ~/.claude/skills now serve as the /plannotator-* slash commands.
 CLAUDE_COMMANDS_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/commands"
-mkdir -p "$CLAUDE_COMMANDS_DIR"
+for cmd in plannotator-review plannotator-annotate plannotator-last plannotator-archive; do
+    if [ -f "$CLAUDE_COMMANDS_DIR/$cmd.md" ]; then
+        rm -f "$CLAUDE_COMMANDS_DIR/$cmd.md"
+        echo "Removed legacy Claude command ${CLAUDE_COMMANDS_DIR}/$cmd.md"
+    fi
+done
 
-cat > "$CLAUDE_COMMANDS_DIR/plannotator-review.md" << 'COMMAND_EOF'
----
-description: Open interactive code review for current changes or a PR URL
-allowed-tools: Bash(plannotator:*)
----
-
-## Code Review Feedback
-
-!`plannotator review $ARGUMENTS`
-
-## Your task
-
-If the review above contains feedback or annotations, address them. If no changes were requested, acknowledge and continue.
-COMMAND_EOF
-
-echo "Installed /plannotator-review command to ${CLAUDE_COMMANDS_DIR}/plannotator-review.md"
-
-# Install /annotate slash command for Claude Code
-cat > "$CLAUDE_COMMANDS_DIR/plannotator-annotate.md" << 'COMMAND_EOF'
----
-description: Open interactive annotation UI for a markdown file
-allowed-tools: Bash(plannotator:*)
----
-
-## Markdown Annotations
-
-!`plannotator annotate $ARGUMENTS`
-
-## Your task
-
-Address the annotation feedback above. The user has reviewed the markdown file and provided specific annotations and comments.
-COMMAND_EOF
-
-echo "Installed /plannotator-annotate command to ${CLAUDE_COMMANDS_DIR}/plannotator-annotate.md"
-
-# Install /plannotator-last slash command for Claude Code
-cat > "$CLAUDE_COMMANDS_DIR/plannotator-last.md" << 'COMMAND_EOF'
----
-description: Annotate the last rendered assistant message
-allowed-tools: Bash(plannotator:*)
----
-
-## Message Annotations
-
-!`plannotator annotate-last`
-
-## Your task
-
-Address the annotation feedback above. The user has reviewed your last message and provided specific annotations and comments.
-COMMAND_EOF
-
-echo "Installed /plannotator-last command to ${CLAUDE_COMMANDS_DIR}/plannotator-last.md"
-
-# Install OpenCode slash command
-OPENCODE_COMMANDS_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/commands"
-mkdir -p "$OPENCODE_COMMANDS_DIR"
-
-cat > "$OPENCODE_COMMANDS_DIR/plannotator-review.md" << 'COMMAND_EOF'
----
-description: Open interactive code review for current changes
----
-
-The Plannotator Code Review has been triggered. Opening the review UI...
-Acknowledge "Opening code review..." and wait for the user's feedback.
-COMMAND_EOF
-
-echo "Installed /plannotator-review command to ${OPENCODE_COMMANDS_DIR}/plannotator-review.md"
-
-# Install /annotate slash command for OpenCode
-cat > "$OPENCODE_COMMANDS_DIR/plannotator-annotate.md" << 'COMMAND_EOF'
----
-description: Open interactive annotation UI for a markdown file
----
-
-The Plannotator Annotate has been triggered. Opening the annotation UI...
-Acknowledge "Opening annotation UI..." and wait for the user's feedback.
-COMMAND_EOF
-
-echo "Installed /plannotator-annotate command to ${OPENCODE_COMMANDS_DIR}/plannotator-annotate.md"
-
-# Install /plannotator-last slash command for OpenCode
-cat > "$OPENCODE_COMMANDS_DIR/plannotator-last.md" << 'COMMAND_EOF'
----
-description: Annotate the last assistant message
----
-COMMAND_EOF
-
-echo "Installed /plannotator-last command to ${OPENCODE_COMMANDS_DIR}/plannotator-last.md"
-
-# Remove legacy Codex-oriented skills from the older shared agent scope.
-LEGACY_AGENTS_SKILLS_DIR="$HOME/.agents/skills"
-legacy_skills_removed=0
-if [ -d "$LEGACY_AGENTS_SKILLS_DIR" ]; then
-    for skill in plannotator-review plannotator-annotate plannotator-last; do
-        if [ -d "$LEGACY_AGENTS_SKILLS_DIR/$skill" ]; then
-            rm -rf "$LEGACY_AGENTS_SKILLS_DIR/$skill"
-            legacy_skills_removed=1
-        fi
-    done
-fi
-if [ "$legacy_skills_removed" -eq 1 ]; then
-    echo "Removed legacy Plannotator skills from ${LEGACY_AGENTS_SKILLS_DIR}"
-fi
-
-# Remove Plannotator skills that belong in the shared agent scope from Codex.
+# Codex no longer hosts core skills (they now live in ~/.agents/skills).
+# Remove the command-overlap skills and the stale shared-agent skills.
 STALE_CODEX_SKILLS_DIR="$HOME/.codex/skills"
-stale_codex_skills_removed=0
-if [ -d "$STALE_CODEX_SKILLS_DIR" ]; then
-    for skill in plannotator-compound plannotator-setup-goal; do
-        if [ -d "$STALE_CODEX_SKILLS_DIR/$skill" ]; then
-            rm -rf "$STALE_CODEX_SKILLS_DIR/$skill"
-            stale_codex_skills_removed=1
+for skill in plannotator-review plannotator-annotate plannotator-last plannotator-compound plannotator-setup-goal; do
+    if [ -d "$STALE_CODEX_SKILLS_DIR/$skill" ]; then
+        rm -rf "$STALE_CODEX_SKILLS_DIR/$skill"
+        echo "Removed Plannotator skill from ${STALE_CODEX_SKILLS_DIR}/$skill"
+    fi
+done
+
+# Extras are no longer installed by this script anywhere except Kiro. Stop
+# managing them in the Claude and shared-agent scopes — a user may reinstall
+# them later via `npx skills add`.
+CLAUDE_SKILLS_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills"
+AGENTS_SKILLS_DIR="$HOME/.agents/skills"
+for scope in "$CLAUDE_SKILLS_DIR" "$AGENTS_SKILLS_DIR"; do
+    for skill in plannotator-compound plannotator-setup-goal plannotator-visual-explainer; do
+        if [ -d "$scope/$skill" ]; then
+            rm -rf "$scope/$skill"
+            echo "Removed extra Plannotator skill from ${scope}/$skill"
         fi
     done
-fi
-if [ "$stale_codex_skills_removed" -eq 1 ]; then
-    echo "Removed shared-agent Plannotator skills from ${STALE_CODEX_SKILLS_DIR}"
-fi
+done
 
-# Install skills (requires git)
+# Install skills and slash commands from a sparse checkout (requires git).
+# Hook/config writing above does NOT depend on git — only these file copies do.
 if command -v git &>/dev/null; then
-    CLAUDE_SKILLS_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills"
-    CODEX_SKILLS_DIR="$HOME/.codex/skills"
-    AGENTS_SKILLS_DIR="$HOME/.agents/skills"
     KIRO_SKILLS_DIR="$HOME/.kiro/skills"
+    OPENCODE_COMMANDS_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/commands"
+    GEMINI_COMMANDS_DIR="$HOME/.gemini/commands"
     skills_tmp=$(mktemp -d)
 
     copy_skill_if_present() {
@@ -785,7 +623,23 @@ if command -v git &>/dev/null; then
         local target_dir="$2"
 
         if [ -d "$source_dir" ]; then
+            # Remove any existing copy first so re-runs replace rather than
+            # nest (cp -r dir dest/dir would otherwise create dest/dir/dir).
+            rm -rf "$target_dir/$(basename "$source_dir")"
             cp -r "$source_dir" "$target_dir/"
+        fi
+    }
+
+    # Copy every command file in a directory if the source dir exists.
+    # Used for OpenCode (.md stubs) and Gemini (.toml) commands, both of
+    # which are checked out from the repo rather than generated by heredocs.
+    copy_commands_if_present() {
+        local source_dir="$1"
+        local target_dir="$2"
+
+        if [ -d "$source_dir" ] && [ -n "$(ls -A "$source_dir" 2>/dev/null)" ]; then
+            mkdir -p "$target_dir"
+            cp "$source_dir"/* "$target_dir/"
         fi
     }
 
@@ -806,29 +660,43 @@ if command -v git &>/dev/null; then
         git clone --depth 1 --filter=blob:none --sparse \
             "https://github.com/${REPO}.git" --branch "$latest_tag" repo 2>/dev/null
         cd repo
-        git sparse-checkout set apps/skills apps/kiro-cli 2>/dev/null
-        [ -d "apps/skills" ]
-        [ "$(ls -A apps/skills 2>/dev/null)" ]
+        git sparse-checkout set apps/skills apps/kiro-cli apps/opencode-plugin/commands apps/gemini/commands 2>/dev/null
+        [ -d "apps/skills/core" ]
+        [ "$(ls -A apps/skills/core 2>/dev/null)" ]
+
+        # Core skills -> Claude Code (also serve as /plannotator-* slash commands)
+        # and the official OpenAI shared-agent path. copy-if-present so an
+        # older pinned tag missing a skill never fails the whole install.
         mkdir -p "$CLAUDE_SKILLS_DIR" "$AGENTS_SKILLS_DIR"
-        cp -r apps/skills/* "$CLAUDE_SKILLS_DIR/"
-        copy_skill_if_present apps/skills/plannotator-compound "$AGENTS_SKILLS_DIR"
-        copy_skill_if_present apps/skills/plannotator-setup-goal "$AGENTS_SKILLS_DIR"
-        copy_skill_if_present apps/skills/plannotator-visual-explainer "$AGENTS_SKILLS_DIR"
-        if [ "$codex_available" -eq 1 ]; then
-            mkdir -p "$CODEX_SKILLS_DIR"
-            copy_skill_if_present apps/skills/plannotator-review "$CODEX_SKILLS_DIR"
-            copy_skill_if_present apps/skills/plannotator-annotate "$CODEX_SKILLS_DIR"
-            copy_skill_if_present apps/skills/plannotator-last "$CODEX_SKILLS_DIR"
+        copy_skill_if_present apps/skills/core/plannotator-review "$CLAUDE_SKILLS_DIR"
+        copy_skill_if_present apps/skills/core/plannotator-annotate "$CLAUDE_SKILLS_DIR"
+        copy_skill_if_present apps/skills/core/plannotator-last "$CLAUDE_SKILLS_DIR"
+        copy_skill_if_present apps/skills/core/plannotator-archive "$CLAUDE_SKILLS_DIR"
+        copy_skill_if_present apps/skills/core/plannotator-review "$AGENTS_SKILLS_DIR"
+        copy_skill_if_present apps/skills/core/plannotator-annotate "$AGENTS_SKILLS_DIR"
+        copy_skill_if_present apps/skills/core/plannotator-last "$AGENTS_SKILLS_DIR"
+        copy_skill_if_present apps/skills/core/plannotator-archive "$AGENTS_SKILLS_DIR"
+
+        # OpenCode slash command stubs (the plugin intercepts execution) —
+        # always installed from the checkout.
+        copy_commands_if_present apps/opencode-plugin/commands "$OPENCODE_COMMANDS_DIR"
+        echo "Installed OpenCode commands to ${OPENCODE_COMMANDS_DIR}/"
+
+        # Gemini native TOML commands — only when Gemini is present.
+        if [ -d "$HOME/.gemini" ]; then
+            copy_commands_if_present apps/gemini/commands "$GEMINI_COMMANDS_DIR"
+            echo "Installed Gemini commands to ${GEMINI_COMMANDS_DIR}/"
         fi
+
         if [ "$kiro_available" -eq 1 ] && [ -d "apps/kiro-cli/skills" ] && [ -n "$(ls -A apps/kiro-cli/skills 2>/dev/null)" ]; then
             mkdir -p "$KIRO_SKILLS_DIR"
             # Kiro-specific skills (origin baked in) come from apps/kiro-cli/skills.
             copy_skill_if_present apps/kiro-cli/skills/plannotator-review "$KIRO_SKILLS_DIR"
             copy_skill_if_present apps/kiro-cli/skills/plannotator-annotate "$KIRO_SKILLS_DIR"
             copy_skill_if_present apps/kiro-cli/skills/plannotator-archive "$KIRO_SKILLS_DIR"
-            # Shared skills come from apps/skills (not duplicated into apps/kiro-cli/skills).
-            copy_skill_if_present apps/skills/plannotator-setup-goal "$KIRO_SKILLS_DIR"
-            copy_skill_if_present apps/skills/plannotator-visual-explainer "$KIRO_SKILLS_DIR"
+            # Extras come from apps/skills/extra (not duplicated into apps/kiro-cli/skills).
+            copy_skill_if_present apps/skills/extra/plannotator-setup-goal "$KIRO_SKILLS_DIR"
+            copy_skill_if_present apps/skills/extra/plannotator-visual-explainer "$KIRO_SKILLS_DIR"
             # Plannotator custom agent — don't clobber a user's existing one.
             if [ ! -f "$HOME/.kiro/agents/plannotator.json" ] && [ -f "apps/kiro-cli/agents/plannotator.json" ]; then
                 mkdir -p "$HOME/.kiro/agents"
@@ -837,23 +705,18 @@ if command -v git &>/dev/null; then
             echo "Installed Kiro skills to ${KIRO_SKILLS_DIR}/ and agent to ~/.kiro/agents/plannotator.json"
         fi
     ); then
-        if [ "$codex_available" -eq 1 ]; then
-            echo "Installed skills to ${CLAUDE_SKILLS_DIR}/, Codex command skills to ${CODEX_SKILLS_DIR}/, and shared agent skills to ${AGENTS_SKILLS_DIR}/"
-        else
-            echo "Installed skills to ${CLAUDE_SKILLS_DIR}/ and shared agent skills to ${AGENTS_SKILLS_DIR}/"
-        fi
+        echo "Installed core skills to ${CLAUDE_SKILLS_DIR}/ and shared agent skills to ${AGENTS_SKILLS_DIR}/"
     else
-        echo "Skipping skills install (git sparse-checkout failed or apps/skills empty)"
+        echo "git required for command/skill install — skipped"
     fi
 
     rm -rf "$skills_tmp"
 else
-    echo "Skipping skills install (git not found)"
+    echo "git required for command/skill install — skipped"
 fi
 
-# Update Pi extension if pi is installed. When global shared skills are
-# available, keep the extension commands but disable its bundled skill copy to
-# avoid duplicate Pi skill warnings.
+# Update Pi extension if pi is installed. The pi-extension no longer bundles
+# skills; Pi keeps its extension commands and the plannotator_submit_plan tool.
 update_pi_extension_if_present
 
 # --- Gemini CLI support (only if Gemini is installed) ---
@@ -925,37 +788,8 @@ GEMINI_SETTINGS_EOF
         echo "Created Gemini settings at ${GEMINI_SETTINGS}"
     fi
 
-    # Install slash commands
-    GEMINI_COMMANDS_DIR="$HOME/.gemini/commands"
-    mkdir -p "$GEMINI_COMMANDS_DIR"
-
-    cat > "$GEMINI_COMMANDS_DIR/plannotator-review.toml" << 'GEMINI_CMD_EOF'
-description = "Open interactive code review for current changes or a PR URL"
-prompt = """
-## Code Review Feedback
-
-!{plannotator review {{args}}}
-
-## Your task
-
-If the review above contains feedback or annotations, address them. If no changes were requested, acknowledge and continue.
-"""
-GEMINI_CMD_EOF
-
-    cat > "$GEMINI_COMMANDS_DIR/plannotator-annotate.toml" << 'GEMINI_CMD_EOF'
-description = "Open interactive annotation UI for a markdown file or folder"
-prompt = """
-## Markdown Annotations
-
-!{plannotator annotate {{args}}}
-
-## Your task
-
-Address the annotation feedback above. The user has reviewed the markdown file and provided specific annotations and comments.
-"""
-GEMINI_CMD_EOF
-
-    echo "Installed Gemini slash commands to ${GEMINI_COMMANDS_DIR}/"
+    # Gemini slash commands (.toml) are installed from the sparse checkout in
+    # the skills/commands install block above (apps/gemini/commands).
 fi
 
 echo ""
@@ -967,7 +801,7 @@ echo "Add the plugin to your opencode.json:"
 echo ""
 echo '  "plugin": ["@plannotator/opencode@latest"]'
 echo ""
-echo "Then restart OpenCode. The /plannotator-review, /plannotator-annotate, and /plannotator-last commands are ready!"
+echo "Then restart OpenCode. The /plannotator-review, /plannotator-annotate, /plannotator-last, and /plannotator-archive commands are ready!"
 echo ""
 echo "=========================================="
 echo "  PI USERS"
@@ -998,13 +832,14 @@ if [ "$codex_available" -eq 1 ]; then
     echo "Restart Codex Desktop or CLI after installing."
     echo "Plan review is configured through the Codex Stop hook."
     echo ""
-    echo "Codex skills are also installed:"
+    echo "Core skills are installed to ~/.agents/skills/:"
     echo "  \$plannotator-review"
     echo "  \$plannotator-annotate <file|url|folder>"
     echo "  \$plannotator-last"
+    echo "  \$plannotator-archive"
 else
     echo "Codex was not detected. After installing Codex, rerun this installer to add"
-    echo "the Stop hook and Codex skills."
+    echo "the Stop hook."
 fi
 echo ""
 echo "=========================================="
@@ -1027,7 +862,11 @@ echo "Install the Claude Code plugin:"
 echo "  /plugin marketplace add backnotprop/plannotator"
 echo "  /plugin install plannotator@plannotator"
 echo ""
-echo "The /plannotator-review, /plannotator-annotate, and /plannotator-last commands are ready to use after you restart Claude Code!"
+echo "The /plannotator-review, /plannotator-annotate, /plannotator-last, and /plannotator-archive commands are ready to use after you restart Claude Code!"
+
+echo ""
+echo "Optional skills (compound planning, setup-goal, visual explainer):"
+echo "  npx skills add backnotprop/plannotator/apps/skills/extra"
 
 # Warn if plannotator is configured in both settings.json hooks AND the plugin (causes double execution)
 # Only warn when the plugin is installed — manual-only users won't have overlap

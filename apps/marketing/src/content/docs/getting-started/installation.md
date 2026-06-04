@@ -64,6 +64,8 @@ Every release includes SHA256 checksums (verified automatically) and optional [S
 
 Restart Claude Code after installing for hooks to take effect.
 
+The plugin provides the plan-review hook only. To also get the `/plannotator-*` slash commands you must run the [install script](#prerequisites) — it installs them as Claude Code skills in `~/.claude/skills` (see [Slash commands](#slash-commands) below).
+
 ### Manual installation
 
 If you prefer not to use the plugin system, add this to your `~/.claude/settings.json`:
@@ -93,6 +95,16 @@ To test a local checkout of Plannotator:
 
 ```bash
 claude --plugin-dir ./apps/hook
+```
+
+### Slash commands
+
+Plannotator's slash commands (`/plannotator-review`, `/plannotator-annotate`, `/plannotator-last`, `/plannotator-archive`) are installed as Claude Code skills in `~/.claude/skills` by the install script — Claude Code skills are user-invocable by directory name, so the command names are unchanged. There is no separate `~/.claude/commands` step.
+
+Optional extra skills (compound planning, setup-goal, visual explainer) are not installed by default. Add them with:
+
+```bash
+npx skills add backnotprop/plannotator/apps/skills/extra
 ```
 
 ## OpenCode
@@ -193,6 +205,12 @@ Notes:
 - Prefer an absolute `plannotator` command path in `hooks.json` for Codex Desktop, because app-launched processes may not inherit your shell `PATH`.
 - Codex hooks are currently experimental.
 - The current official Codex hooks docs say hooks are disabled on Windows, so this flow is currently macOS/Linux/WSL only.
+
+The installer also copies Plannotator's core skills (`plannotator-review`, `plannotator-annotate`, `plannotator-last`, `plannotator-archive`) into `~/.agents/skills` — the official OpenAI agent skills path. Optional extra skills (compound planning, setup-goal, visual explainer) are not installed by default; add them with:
+
+```bash
+npx skills add backnotprop/plannotator/apps/skills/extra
+```
 
 You can still use the direct commands at any time:
 

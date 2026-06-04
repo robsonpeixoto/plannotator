@@ -439,182 +439,148 @@ if exist "%USERPROFILE%\.cache\opencode\node_modules\@plannotator" rmdir /s /q "
 if exist "%USERPROFILE%\.cache\opencode\packages\@plannotator" rmdir /s /q "%USERPROFILE%\.cache\opencode\packages\@plannotator" >nul 2>&1
 if exist "%USERPROFILE%\.bun\install\cache\@plannotator" rmdir /s /q "%USERPROFILE%\.bun\install\cache\@plannotator" >nul 2>&1
 
-REM Install /review slash command
+REM ----------------------------------------------------------------------
+REM Skills + command stubs install (requires git)
+REM
+REM Claude Code commands are deprecated in favor of skills. Core skills
+REM installed to %%USERPROFILE%%\.claude\skills are user-invocable by directory
+REM name (/plannotator-review etc.), so no command files are written anymore.
+REM
+REM Install matrix (all copies verbatim, copy-if-present so older-tag pinned
+REM installs never fail when a source dir is absent):
+REM   %%USERPROFILE%%\.claude\skills            <- apps\skills\core\* (all 4)
+REM   %%USERPROFILE%%\.agents\skills            <- apps\skills\core\* (all 4)
+REM   %%USERPROFILE%%\.kiro\skills              <- apps\kiro-cli\skills\* (3) + 2 extras (when kiro detected)
+REM   %%USERPROFILE%%\.config\opencode\commands <- apps\opencode-plugin\commands\*.md (always)
+REM   %%USERPROFILE%%\.gemini\commands          <- apps\gemini\commands\*.toml (when ~/.gemini exists)
+REM Nothing goes to %%USERPROFILE%%\.codex\skills anymore.
+REM ----------------------------------------------------------------------
+
+REM Aggressive cleanup on upgrade — echo each removal, ignore missing.
+REM Remove deprecated Claude Code command files (now served by core skills).
 if defined CLAUDE_CONFIG_DIR (
     set "CLAUDE_COMMANDS_DIR=%CLAUDE_CONFIG_DIR%\commands"
 ) else (
     set "CLAUDE_COMMANDS_DIR=%USERPROFILE%\.claude\commands"
 )
-if not exist "!CLAUDE_COMMANDS_DIR!" mkdir "!CLAUDE_COMMANDS_DIR!"
-
-(
-echo ---
-echo description: Open interactive code review for current changes or a PR URL
-echo allowed-tools: Bash^(plannotator:*^)
-echo ---
-echo.
-echo ## Code Review Feedback
-echo.
-echo ^^!`plannotator review $ARGUMENTS`
-echo.
-echo ## Your task
-echo.
-echo If the review above contains feedback or annotations, address them. If no changes were requested, acknowledge and continue.
-) > "!CLAUDE_COMMANDS_DIR!\plannotator-review.md"
-
-echo Installed /plannotator-review command to !CLAUDE_COMMANDS_DIR!\plannotator-review.md
-
-(
-echo ---
-echo description: Open interactive annotation UI for a markdown file
-echo allowed-tools: Bash^(plannotator:*^)
-echo ---
-echo.
-echo ## Markdown Annotations
-echo.
-echo ^^!`plannotator annotate $ARGUMENTS`
-echo.
-echo ## Your task
-echo.
-echo Address the annotation feedback above. The user has reviewed the markdown file and provided specific annotations and comments.
-) > "!CLAUDE_COMMANDS_DIR!\plannotator-annotate.md"
-
-echo Installed /plannotator-annotate command to !CLAUDE_COMMANDS_DIR!\plannotator-annotate.md
-
-(
-echo ---
-echo description: Annotate the last rendered assistant message
-echo allowed-tools: Bash^(plannotator:*^)
-echo ---
-echo.
-echo ## Message Annotations
-echo.
-echo ^^!`plannotator annotate-last`
-echo.
-echo ## Your task
-echo.
-echo Address the annotation feedback above. The user has reviewed your last message and provided specific annotations and comments.
-) > "!CLAUDE_COMMANDS_DIR!\plannotator-last.md"
-
-echo Installed /plannotator-last command to !CLAUDE_COMMANDS_DIR!\plannotator-last.md
-
-REM Install skills (requires git)
-REM Remove legacy Codex-oriented skills from the older shared agent scope.
-set "LEGACY_AGENTS_SKILLS_DIR=%USERPROFILE%\.agents\skills"
-set "LEGACY_SKILLS_REMOVED=0"
-for %%S in (plannotator-review plannotator-annotate plannotator-last) do (
-    if exist "!LEGACY_AGENTS_SKILLS_DIR!\%%S" (
-        rmdir /s /q "!LEGACY_AGENTS_SKILLS_DIR!\%%S" >nul 2>&1
-        set "LEGACY_SKILLS_REMOVED=1"
+for %%C in (plannotator-review.md plannotator-annotate.md plannotator-last.md plannotator-archive.md) do (
+    if exist "!CLAUDE_COMMANDS_DIR!\%%C" (
+        del /q "!CLAUDE_COMMANDS_DIR!\%%C" >nul 2>&1
+        echo Removed deprecated Claude command !CLAUDE_COMMANDS_DIR!\%%C
     )
 )
-if "!LEGACY_SKILLS_REMOVED!"=="1" echo Removed legacy Plannotator skills from !LEGACY_AGENTS_SKILLS_DIR!
 
-REM Remove Plannotator skills that belong in the shared agent scope from Codex.
+REM Codex no longer receives core skills (they live in %%USERPROFILE%%\.agents\skills).
+REM Remove the old per-skill Codex installs plus the previously-stale compound/setup-goal.
 set "STALE_CODEX_SKILLS_DIR=%USERPROFILE%\.codex\skills"
-set "STALE_CODEX_SKILLS_REMOVED=0"
-for %%S in (plannotator-compound plannotator-setup-goal) do (
+for %%S in (plannotator-review plannotator-annotate plannotator-last plannotator-compound plannotator-setup-goal) do (
     if exist "!STALE_CODEX_SKILLS_DIR!\%%S" (
         rmdir /s /q "!STALE_CODEX_SKILLS_DIR!\%%S" >nul 2>&1
-        set "STALE_CODEX_SKILLS_REMOVED=1"
+        echo Removed Plannotator skill from !STALE_CODEX_SKILLS_DIR!\%%S
     )
 )
-if "!STALE_CODEX_SKILLS_REMOVED!"=="1" echo Removed shared-agent Plannotator skills from !STALE_CODEX_SKILLS_DIR!
 
+REM Extras are no longer managed in the Claude / shared-agent scopes. Remove them
+REM from both (the user may reinstall them later via `npx skills add`).
+if defined CLAUDE_CONFIG_DIR (
+    set "CLAUDE_SKILLS_DIR=%CLAUDE_CONFIG_DIR%\skills"
+) else (
+    set "CLAUDE_SKILLS_DIR=%USERPROFILE%\.claude\skills"
+)
+set "AGENTS_SKILLS_DIR=%USERPROFILE%\.agents\skills"
+for %%S in (plannotator-compound plannotator-setup-goal plannotator-visual-explainer) do (
+    if exist "!CLAUDE_SKILLS_DIR!\%%S" (
+        rmdir /s /q "!CLAUDE_SKILLS_DIR!\%%S" >nul 2>&1
+        echo Removed extra Plannotator skill from !CLAUDE_SKILLS_DIR!\%%S
+    )
+    if exist "!AGENTS_SKILLS_DIR!\%%S" (
+        rmdir /s /q "!AGENTS_SKILLS_DIR!\%%S" >nul 2>&1
+        echo Removed extra Plannotator skill from !AGENTS_SKILLS_DIR!\%%S
+    )
+)
+
+REM File-copy installs are gated on git (sparse checkout). Hook/config writing
+REM elsewhere in this script is NOT behind this gate.
 where git >nul 2>&1
 if !ERRORLEVEL! equ 0 (
-    if defined CLAUDE_CONFIG_DIR (
-        set "CLAUDE_SKILLS_DIR=%CLAUDE_CONFIG_DIR%\skills"
-    ) else (
-        set "CLAUDE_SKILLS_DIR=%USERPROFILE%\.claude\skills"
-    )
-    set "CODEX_SKILLS_DIR=%USERPROFILE%\.codex\skills"
-    set "AGENTS_SKILLS_DIR=%USERPROFILE%\.agents\skills"
     set "KIRO_SKILLS_DIR=%USERPROFILE%\.kiro\skills"
     set "KIRO_AGENTS_DIR=%USERPROFILE%\.kiro\agents"
+    set "OPENCODE_COMMANDS_DIR=%USERPROFILE%\.config\opencode\commands"
+    set "GEMINI_COMMANDS_DIR=%USERPROFILE%\.gemini\commands"
     set "SKILLS_TMP=%TEMP%\plannotator-skills-%RANDOM%"
     mkdir "!SKILLS_TMP!" >nul 2>&1
 
     git clone --depth 1 --filter=blob:none --sparse "https://github.com/!REPO!.git" --branch "!TAG!" "!SKILLS_TMP!\repo" >nul 2>&1
     if !ERRORLEVEL! equ 0 (
         pushd "!SKILLS_TMP!\repo"
-        git sparse-checkout set apps/skills apps/kiro-cli >nul 2>&1
+        git sparse-checkout set apps/skills apps/kiro-cli apps/opencode-plugin/commands apps/gemini/commands >nul 2>&1
 
-        if exist "apps\skills" (
+        REM Core skills -> Claude + shared agent scope (all 4, copy-if-present).
+        if exist "apps\skills\core" (
             if not exist "!CLAUDE_SKILLS_DIR!" mkdir "!CLAUDE_SKILLS_DIR!"
             if not exist "!AGENTS_SKILLS_DIR!" mkdir "!AGENTS_SKILLS_DIR!"
-            xcopy /s /y /q "apps\skills\*" "!CLAUDE_SKILLS_DIR!\" >nul 2>&1
-            if exist "apps\skills\plannotator-compound" xcopy /s /i /y /q "apps\skills\plannotator-compound" "!AGENTS_SKILLS_DIR!\plannotator-compound\" >nul 2>&1
-            if exist "apps\skills\plannotator-setup-goal" xcopy /s /i /y /q "apps\skills\plannotator-setup-goal" "!AGENTS_SKILLS_DIR!\plannotator-setup-goal\" >nul 2>&1
-            if exist "apps\skills\plannotator-visual-explainer" xcopy /s /i /y /q "apps\skills\plannotator-visual-explainer" "!AGENTS_SKILLS_DIR!\plannotator-visual-explainer\" >nul 2>&1
-            if "!CODEX_AVAILABLE!"=="1" (
-                if not exist "!CODEX_SKILLS_DIR!" mkdir "!CODEX_SKILLS_DIR!"
-                if exist "apps\skills\plannotator-review" xcopy /s /i /y /q "apps\skills\plannotator-review" "!CODEX_SKILLS_DIR!\plannotator-review\" >nul 2>&1
-                if exist "apps\skills\plannotator-annotate" xcopy /s /i /y /q "apps\skills\plannotator-annotate" "!CODEX_SKILLS_DIR!\plannotator-annotate\" >nul 2>&1
-                if exist "apps\skills\plannotator-last" xcopy /s /i /y /q "apps\skills\plannotator-last" "!CODEX_SKILLS_DIR!\plannotator-last\" >nul 2>&1
-                echo Installed skills to !CLAUDE_SKILLS_DIR!\, Codex command skills to !CODEX_SKILLS_DIR!\, and shared agent skills to !AGENTS_SKILLS_DIR!\
-            ) else (
-                echo Installed skills to !CLAUDE_SKILLS_DIR!\ and shared agent skills to !AGENTS_SKILLS_DIR!\
-            )
-            if "!KIRO_AVAILABLE!"=="1" if exist "apps\kiro-cli\skills" (
-                if not exist "!KIRO_SKILLS_DIR!" mkdir "!KIRO_SKILLS_DIR!"
-                REM Kiro-specific skills with origin baked in come from apps/kiro-cli/skills.
-                if exist "apps\kiro-cli\skills\plannotator-review" xcopy /s /i /y /q "apps\kiro-cli\skills\plannotator-review" "!KIRO_SKILLS_DIR!\plannotator-review\" >nul 2>&1
-                if exist "apps\kiro-cli\skills\plannotator-annotate" xcopy /s /i /y /q "apps\kiro-cli\skills\plannotator-annotate" "!KIRO_SKILLS_DIR!\plannotator-annotate\" >nul 2>&1
-                if exist "apps\kiro-cli\skills\plannotator-archive" xcopy /s /i /y /q "apps\kiro-cli\skills\plannotator-archive" "!KIRO_SKILLS_DIR!\plannotator-archive\" >nul 2>&1
-                REM Shared skills come from apps/skills, not duplicated into apps/kiro-cli/skills.
-                if exist "apps\skills\plannotator-setup-goal" xcopy /s /i /y /q "apps\skills\plannotator-setup-goal" "!KIRO_SKILLS_DIR!\plannotator-setup-goal\" >nul 2>&1
-                if exist "apps\skills\plannotator-visual-explainer" xcopy /s /i /y /q "apps\skills\plannotator-visual-explainer" "!KIRO_SKILLS_DIR!\plannotator-visual-explainer\" >nul 2>&1
-                REM Plannotator custom agent — don't clobber a user's existing one.
-                if not exist "!KIRO_AGENTS_DIR!\plannotator.json" if exist "apps\kiro-cli\agents\plannotator.json" (
-                    if not exist "!KIRO_AGENTS_DIR!" mkdir "!KIRO_AGENTS_DIR!"
-                    copy /y "apps\kiro-cli\agents\plannotator.json" "!KIRO_AGENTS_DIR!\plannotator.json" >nul 2>&1
+            for %%S in (plannotator-review plannotator-annotate plannotator-last plannotator-archive) do (
+                if exist "apps\skills\core\%%S" (
+                    xcopy /s /i /y /q "apps\skills\core\%%S" "!CLAUDE_SKILLS_DIR!\%%S\" >nul 2>&1
+                    xcopy /s /i /y /q "apps\skills\core\%%S" "!AGENTS_SKILLS_DIR!\%%S\" >nul 2>&1
                 )
-                echo Installed Kiro skills to !KIRO_SKILLS_DIR!\ and agent to !KIRO_AGENTS_DIR!\plannotator.json
             )
+            echo Installed core skills to !CLAUDE_SKILLS_DIR!\ and !AGENTS_SKILLS_DIR!\
+        )
+
+        REM OpenCode command stubs -> always (plugin intercepts execution).
+        if exist "apps\opencode-plugin\commands" (
+            if not exist "!OPENCODE_COMMANDS_DIR!" mkdir "!OPENCODE_COMMANDS_DIR!"
+            xcopy /y /q "apps\opencode-plugin\commands\*.md" "!OPENCODE_COMMANDS_DIR!\" >nul 2>&1
+            echo Installed OpenCode commands to !OPENCODE_COMMANDS_DIR!\
+        )
+
+        REM Gemini TOML commands -> only when ~/.gemini exists (Gemini's native format).
+        if exist "%USERPROFILE%\.gemini" if exist "apps\gemini\commands" (
+            if not exist "!GEMINI_COMMANDS_DIR!" mkdir "!GEMINI_COMMANDS_DIR!"
+            xcopy /y /q "apps\gemini\commands\*.toml" "!GEMINI_COMMANDS_DIR!\" >nul 2>&1
+            echo Installed Gemini commands to !GEMINI_COMMANDS_DIR!\
+        )
+
+        REM Kiro -> hand-maintained kiro skills (3) + 2 extras, only when detected.
+        if "!KIRO_AVAILABLE!"=="1" if exist "apps\kiro-cli\skills" (
+            if not exist "!KIRO_SKILLS_DIR!" mkdir "!KIRO_SKILLS_DIR!"
+            REM Kiro-specific skills with origin baked in come from apps\kiro-cli\skills.
+            for %%S in (plannotator-review plannotator-annotate plannotator-archive) do (
+                if exist "apps\kiro-cli\skills\%%S" xcopy /s /i /y /q "apps\kiro-cli\skills\%%S" "!KIRO_SKILLS_DIR!\%%S\" >nul 2>&1
+            )
+            REM The two extras Kiro keeps receiving come from apps\skills\extra.
+            if exist "apps\skills\extra\plannotator-setup-goal" xcopy /s /i /y /q "apps\skills\extra\plannotator-setup-goal" "!KIRO_SKILLS_DIR!\plannotator-setup-goal\" >nul 2>&1
+            if exist "apps\skills\extra\plannotator-visual-explainer" xcopy /s /i /y /q "apps\skills\extra\plannotator-visual-explainer" "!KIRO_SKILLS_DIR!\plannotator-visual-explainer\" >nul 2>&1
+            REM Plannotator custom agent — don't clobber a user's existing one.
+            if not exist "!KIRO_AGENTS_DIR!\plannotator.json" if exist "apps\kiro-cli\agents\plannotator.json" (
+                if not exist "!KIRO_AGENTS_DIR!" mkdir "!KIRO_AGENTS_DIR!"
+                copy /y "apps\kiro-cli\agents\plannotator.json" "!KIRO_AGENTS_DIR!\plannotator.json" >nul 2>&1
+            )
+            echo Installed Kiro skills to !KIRO_SKILLS_DIR!\ and agent to !KIRO_AGENTS_DIR!\plannotator.json
         )
 
         popd
     ) else (
-        echo Skipping skills install ^(git sparse-checkout failed^)
+        echo git required for command/skill install — skipped ^(sparse checkout failed^)
     )
 
     rmdir /s /q "!SKILLS_TMP!" >nul 2>&1
 ) else (
-    echo Skipping skills install ^(git not found^)
+    echo git required for command/skill install — skipped
 )
 
-REM Update Pi extension if pi is installed. When global shared skills are
-REM available, keep the extension commands but disable its bundled skill copy to
-REM avoid duplicate Pi skill warnings.
+REM Update Pi extension if pi is installed. Pi keeps its 6 extension commands
+REM and the plannotator_submit_plan tool; it no longer bundles skills, so there
+REM is no settings.json package-skills filter to configure.
 where pi >nul 2>&1
 if !ERRORLEVEL! equ 0 (
     echo Updating Pi extension...
     pi install npm:@plannotator/pi-extension
     if !ERRORLEVEL! equ 0 (
-        set "PI_SHARED_SKILLS_DIR=%USERPROFILE%\.agents\skills"
-        set "PI_SHARED_SKILLS_AVAILABLE=0"
-        if exist "!PI_SHARED_SKILLS_DIR!\plannotator-compound\SKILL.md" if exist "!PI_SHARED_SKILLS_DIR!\plannotator-setup-goal\SKILL.md" if exist "!PI_SHARED_SKILLS_DIR!\plannotator-visual-explainer\SKILL.md" set "PI_SHARED_SKILLS_AVAILABLE=1"
-        if "!PI_SHARED_SKILLS_AVAILABLE!"=="1" (
-            if defined PI_CODING_AGENT_DIR (
-                set "PI_SETTINGS_PATH=!PI_CODING_AGENT_DIR!\settings.json"
-            ) else (
-                set "PI_SETTINGS_PATH=%USERPROFILE%\.pi\agent\settings.json"
-            )
-            if exist "!PI_SETTINGS_PATH!" (
-                where powershell >nul 2>&1
-                if !ERRORLEVEL! equ 0 (
-                    powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=$env:PI_SETTINGS_PATH; if ((Test-Path $p) -eq $false) { exit 0 }; try { $s=Get-Content -Path $p -Raw -ErrorAction Stop | ConvertFrom-Json } catch { Write-Host 'Skipping Pi settings update (could not parse settings.json)'; exit 0 }; if (($null -eq $s) -or ($null -eq $s.packages)) { exit 0 }; $pattern='^(?:npm:)?@plannotator/pi-extension(?:@.+)?$'; $changed=$false; $packages=@(); foreach ($entry in @($s.packages)) { if (($entry -is [string]) -and ($entry -match $pattern)) { $packages += [pscustomobject]@{ source=$entry; skills=@() }; $changed=$true; continue }; $sourceProperty=$null; if (($null -ne $entry) -and ($null -ne $entry.PSObject)) { $sourceProperty=$entry.PSObject.Properties['source'] }; if (($null -ne $sourceProperty) -and ($sourceProperty.Value -is [string]) -and ($sourceProperty.Value -match $pattern)) { $skillsProperty=$entry.PSObject.Properties['skills']; if (($null -eq $skillsProperty) -or (@($skillsProperty.Value).Count -ne 0)) { if ($null -ne $skillsProperty) { $entry.skills=@() } else { $entry | Add-Member -NotePropertyName 'skills' -NotePropertyValue @() }; $changed=$true } }; $packages += $entry }; if ($changed) { $s.packages=@($packages); $tmp=[System.IO.Path]::GetTempFileName(); try { $json=($s | ConvertTo-Json -Depth 20)+[Environment]::NewLine; $utf8NoBom=New-Object System.Text.UTF8Encoding -ArgumentList $false; [System.IO.File]::WriteAllText($tmp,$json,$utf8NoBom); Move-Item -Force $tmp $p; Write-Host 'Configured Pi to use global Plannotator skills and skip bundled package skills.' } catch { Write-Host 'Skipping Pi settings update (could not rewrite settings.json)'; Remove-Item -Force $tmp -ErrorAction SilentlyContinue } }"
-                ) else (
-                    echo Skipping Pi settings update ^(PowerShell not found^)
-                )
-            )
-        ) else (
-            echo Leaving Pi bundled skills enabled ^(global Plannotator agent skills not found^).
-        )
         echo Pi extension updated.
     ) else (
-        echo Skipping Pi settings update ^(pi install failed^)
+        echo Skipping Pi update ^(pi install failed^)
     )
 )
 
@@ -680,36 +646,8 @@ echo }
         )
     )
 
-    REM Install slash commands
-    if not exist "%USERPROFILE%\.gemini\commands" mkdir "%USERPROFILE%\.gemini\commands"
-
-    (
-echo description = "Open interactive code review for current changes or a PR URL"
-echo prompt = """
-echo ## Code Review Feedback
-echo.
-echo ^^!{plannotator review {{args}}}
-echo.
-echo ## Your task
-echo.
-echo If the review above contains feedback or annotations, address them. If no changes were requested, acknowledge and continue.
-echo """
-    ) > "%USERPROFILE%\.gemini\commands\plannotator-review.toml"
-
-    (
-echo description = "Open interactive annotation UI for a markdown file or folder"
-echo prompt = """
-echo ## Markdown Annotations
-echo.
-echo ^^!{plannotator annotate {{args}}}
-echo.
-echo ## Your task
-echo.
-echo Address the annotation feedback above. The user has reviewed the markdown file and provided specific annotations and comments.
-echo """
-    ) > "%USERPROFILE%\.gemini\commands\plannotator-annotate.toml"
-
-    echo Installed Gemini slash commands to %USERPROFILE%\.gemini\commands\
+    REM Gemini slash commands (plannotator-*.toml) are copied from the sparse
+    REM checkout in the git-gated skills/commands block above, not written here.
 )
 
 echo.
@@ -733,7 +671,10 @@ echo Then install the Claude Code plugin:
 echo   /plugin marketplace add backnotprop/plannotator
 echo   /plugin install plannotator@plannotator
 echo.
-echo The /plannotator-review, /plannotator-annotate, and /plannotator-last commands are ready to use!
+echo The /plannotator-review, /plannotator-annotate, /plannotator-last, and /plannotator-archive skills are ready to use!
+echo.
+echo Optional skills ^(compound planning, setup-goal, visual explainer^):
+echo   npx skills add backnotprop/plannotator/apps/skills/extra
 
 REM Warn if plannotator is configured in both settings.json hooks AND the plugin (causes double execution)
 REM Only warn when the plugin is installed — manual-only users won't have overlap
