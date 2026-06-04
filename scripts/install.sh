@@ -661,21 +661,26 @@ if command -v git &>/dev/null; then
             "https://github.com/${REPO}.git" --branch "$latest_tag" repo 2>/dev/null
         cd repo
         git sparse-checkout set apps/skills apps/kiro-cli apps/opencode-plugin/commands apps/gemini/commands 2>/dev/null
-        [ -d "apps/skills/core" ]
-        [ "$(ls -A apps/skills/core 2>/dev/null)" ]
 
         # Core skills -> Claude Code (also serve as /plannotator-* slash commands)
-        # and the official OpenAI shared-agent path. copy-if-present so an
-        # older pinned tag missing a skill never fails the whole install.
-        mkdir -p "$CLAUDE_SKILLS_DIR" "$AGENTS_SKILLS_DIR"
-        copy_skill_if_present apps/skills/core/plannotator-review "$CLAUDE_SKILLS_DIR"
-        copy_skill_if_present apps/skills/core/plannotator-annotate "$CLAUDE_SKILLS_DIR"
-        copy_skill_if_present apps/skills/core/plannotator-last "$CLAUDE_SKILLS_DIR"
-        copy_skill_if_present apps/skills/core/plannotator-archive "$CLAUDE_SKILLS_DIR"
-        copy_skill_if_present apps/skills/core/plannotator-review "$AGENTS_SKILLS_DIR"
-        copy_skill_if_present apps/skills/core/plannotator-annotate "$AGENTS_SKILLS_DIR"
-        copy_skill_if_present apps/skills/core/plannotator-last "$AGENTS_SKILLS_DIR"
-        copy_skill_if_present apps/skills/core/plannotator-archive "$AGENTS_SKILLS_DIR"
+        # and the official OpenAI shared-agent path. SOFT guard: a tag pinned
+        # via --version may predate the core/extra layout — skip core skills
+        # but keep installing the command files below (matches install.ps1 and
+        # install.cmd, which guard each block independently).
+        if [ -d "apps/skills/core" ] && [ -n "$(ls -A apps/skills/core 2>/dev/null)" ]; then
+            mkdir -p "$CLAUDE_SKILLS_DIR" "$AGENTS_SKILLS_DIR"
+            copy_skill_if_present apps/skills/core/plannotator-review "$CLAUDE_SKILLS_DIR"
+            copy_skill_if_present apps/skills/core/plannotator-annotate "$CLAUDE_SKILLS_DIR"
+            copy_skill_if_present apps/skills/core/plannotator-last "$CLAUDE_SKILLS_DIR"
+            copy_skill_if_present apps/skills/core/plannotator-archive "$CLAUDE_SKILLS_DIR"
+            copy_skill_if_present apps/skills/core/plannotator-review "$AGENTS_SKILLS_DIR"
+            copy_skill_if_present apps/skills/core/plannotator-annotate "$AGENTS_SKILLS_DIR"
+            copy_skill_if_present apps/skills/core/plannotator-last "$AGENTS_SKILLS_DIR"
+            copy_skill_if_present apps/skills/core/plannotator-archive "$AGENTS_SKILLS_DIR"
+            echo "Installed core skills to ${CLAUDE_SKILLS_DIR}/ and shared agent skills to ${AGENTS_SKILLS_DIR}/"
+        else
+            echo "Tag ${latest_tag} predates the core/extra skill layout — skipping core skill install"
+        fi
 
         # OpenCode slash command stubs (the plugin intercepts execution) —
         # always installed from the checkout.
@@ -705,9 +710,9 @@ if command -v git &>/dev/null; then
             echo "Installed Kiro skills to ${KIRO_SKILLS_DIR}/ and agent to ~/.kiro/agents/plannotator.json"
         fi
     ); then
-        echo "Installed core skills to ${CLAUDE_SKILLS_DIR}/ and shared agent skills to ${AGENTS_SKILLS_DIR}/"
+        :
     else
-        echo "git required for command/skill install — skipped"
+        echo "Unable to fetch ${REPO} at ${latest_tag} (network or git error) — command/skill install skipped"
     fi
 
     rm -rf "$skills_tmp"
@@ -861,6 +866,9 @@ echo ""
 echo "Install the Claude Code plugin:"
 echo "  /plugin marketplace add backnotprop/plannotator"
 echo "  /plugin install plannotator@plannotator"
+echo ""
+echo "Upgrading from an older version? Also run /plugin marketplace update"
+echo "so the plugin drops its old plannotator:* command entries."
 echo ""
 echo "The /plannotator-review, /plannotator-annotate, /plannotator-last, and /plannotator-archive commands are ready to use after you restart Claude Code!"
 

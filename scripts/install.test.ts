@@ -505,6 +505,26 @@ describe("Core Plannotator skills", () => {
       expect(existsSync(configPath)).toBe(true);
     }
   });
+
+  test("every core skill sets disable-model-invocation: true", () => {
+    // Load-bearing for #842: Pi natively discovers ~/.agents/skills, and this
+    // frontmatter line is the only thing keeping the core skills out of Pi's
+    // system prompt (<available_skills>). Removing it from any core skill
+    // silently reintroduces the context-bloat bug.
+    for (const skill of [
+      "plannotator-review",
+      "plannotator-annotate",
+      "plannotator-last",
+      "plannotator-archive",
+    ]) {
+      const skillMd = readFileSync(
+        join(scriptsDir, "..", "apps", "skills", "core", skill, "SKILL.md"),
+        "utf-8",
+      );
+      const frontmatter = skillMd.split("---")[1] ?? "";
+      expect(frontmatter).toContain("disable-model-invocation: true");
+    }
+  });
 });
 
 describe("install shared behavior", () => {

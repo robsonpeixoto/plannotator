@@ -521,6 +521,9 @@ if !ERRORLEVEL! equ 0 (
             if not exist "!AGENTS_SKILLS_DIR!" mkdir "!AGENTS_SKILLS_DIR!"
             for %%S in (plannotator-review plannotator-annotate plannotator-last plannotator-archive) do (
                 if exist "apps\skills\core\%%S" (
+                    REM Replace rather than merge so files removed upstream don't linger.
+                    if exist "!CLAUDE_SKILLS_DIR!\%%S" rmdir /s /q "!CLAUDE_SKILLS_DIR!\%%S" >nul 2>&1
+                    if exist "!AGENTS_SKILLS_DIR!\%%S" rmdir /s /q "!AGENTS_SKILLS_DIR!\%%S" >nul 2>&1
                     xcopy /s /i /y /q "apps\skills\core\%%S" "!CLAUDE_SKILLS_DIR!\%%S\" >nul 2>&1
                     xcopy /s /i /y /q "apps\skills\core\%%S" "!AGENTS_SKILLS_DIR!\%%S\" >nul 2>&1
                 )
@@ -547,11 +550,20 @@ if !ERRORLEVEL! equ 0 (
             if not exist "!KIRO_SKILLS_DIR!" mkdir "!KIRO_SKILLS_DIR!"
             REM Kiro-specific skills with origin baked in come from apps\kiro-cli\skills.
             for %%S in (plannotator-review plannotator-annotate plannotator-archive) do (
-                if exist "apps\kiro-cli\skills\%%S" xcopy /s /i /y /q "apps\kiro-cli\skills\%%S" "!KIRO_SKILLS_DIR!\%%S\" >nul 2>&1
+                if exist "apps\kiro-cli\skills\%%S" (
+                    if exist "!KIRO_SKILLS_DIR!\%%S" rmdir /s /q "!KIRO_SKILLS_DIR!\%%S" >nul 2>&1
+                    xcopy /s /i /y /q "apps\kiro-cli\skills\%%S" "!KIRO_SKILLS_DIR!\%%S\" >nul 2>&1
+                )
             )
             REM The two extras Kiro keeps receiving come from apps\skills\extra.
-            if exist "apps\skills\extra\plannotator-setup-goal" xcopy /s /i /y /q "apps\skills\extra\plannotator-setup-goal" "!KIRO_SKILLS_DIR!\plannotator-setup-goal\" >nul 2>&1
-            if exist "apps\skills\extra\plannotator-visual-explainer" xcopy /s /i /y /q "apps\skills\extra\plannotator-visual-explainer" "!KIRO_SKILLS_DIR!\plannotator-visual-explainer\" >nul 2>&1
+            if exist "apps\skills\extra\plannotator-setup-goal" (
+                if exist "!KIRO_SKILLS_DIR!\plannotator-setup-goal" rmdir /s /q "!KIRO_SKILLS_DIR!\plannotator-setup-goal" >nul 2>&1
+                xcopy /s /i /y /q "apps\skills\extra\plannotator-setup-goal" "!KIRO_SKILLS_DIR!\plannotator-setup-goal\" >nul 2>&1
+            )
+            if exist "apps\skills\extra\plannotator-visual-explainer" (
+                if exist "!KIRO_SKILLS_DIR!\plannotator-visual-explainer" rmdir /s /q "!KIRO_SKILLS_DIR!\plannotator-visual-explainer" >nul 2>&1
+                xcopy /s /i /y /q "apps\skills\extra\plannotator-visual-explainer" "!KIRO_SKILLS_DIR!\plannotator-visual-explainer\" >nul 2>&1
+            )
             REM Plannotator custom agent — don't clobber a user's existing one.
             if not exist "!KIRO_AGENTS_DIR!\plannotator.json" if exist "apps\kiro-cli\agents\plannotator.json" (
                 if not exist "!KIRO_AGENTS_DIR!" mkdir "!KIRO_AGENTS_DIR!"
@@ -670,6 +682,9 @@ echo.
 echo Then install the Claude Code plugin:
 echo   /plugin marketplace add backnotprop/plannotator
 echo   /plugin install plannotator@plannotator
+echo.
+echo Upgrading from an older version? Also run /plugin marketplace update
+echo so the plugin drops its old plannotator:* command entries.
 echo.
 echo The /plannotator-review, /plannotator-annotate, /plannotator-last, and /plannotator-archive skills are ready to use!
 echo.
