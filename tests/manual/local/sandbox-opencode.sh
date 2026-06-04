@@ -248,7 +248,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/plannotator-opencode-env.sh"
 cd "$PLANNOTATOR_OPENCODE_SANDBOX"
-PORT="${OPENCODE_PORT:-4096}"
+PORT="${OPENCODE_PORT:-4097}"
 exec "${OPENCODE_BINARY:-opencode}" serve --port "$PORT" "$@"
 EOF
 
@@ -258,6 +258,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/plannotator-opencode-env.sh"
 cd "$PLANNOTATOR_OPENCODE_SANDBOX"
+export OPENCODE_PORT="${OPENCODE_PORT:-4097}"
 
 if [ -n "${OPENCHAMBER_CLI:-}" ]; then
   exec "$OPENCHAMBER_CLI" serve --foreground "$@"
@@ -292,7 +293,7 @@ EOF
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/plannotator-opencode-env.sh"
-export OPENCODE_PORT="${OPENCODE_PORT:-4096}"
+export OPENCODE_PORT="${OPENCODE_PORT:-4097}"
 export OPENCODE_SKIP_START=true
 exec "$SCRIPT_DIR/run-openchamber.sh" "$@"
 EOF
