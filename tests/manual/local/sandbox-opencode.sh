@@ -1826,6 +1826,7 @@ mkdir -p .opencode
 # The loader is referenced from opencode.json so we can pass plugin options.
 cat > .opencode/plannotator.ts << EOF
 // Loader for local Plannotator plugin development
+export { default } from "$PLUGIN_DIR/index.ts";
 export * from "$PLUGIN_DIR/index.ts";
 EOF
 
