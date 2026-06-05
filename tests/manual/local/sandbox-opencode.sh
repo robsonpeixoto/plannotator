@@ -20,6 +20,7 @@
 #   --keep             Don't clean up sandbox on exit (for debugging)
 #   --no-git           Don't initialize git repo (tests non-git fallback)
 #   --no-launch        Create the sandbox and config, then exit before OpenCode
+#                      Implies --keep so the generated helpers remain usable
 #
 # What it does:
 #   1. Clears OpenCode-related caches
@@ -140,6 +141,10 @@ case "$RUNTIME" in
     ;;
 esac
 
+if [ "$NO_LAUNCH" = true ]; then
+  KEEP_SANDBOX=true
+fi
+
 if [ "$ISOLATED" = true ]; then
   if [ -z "$ISOLATION_ROOT" ]; then
     ISOLATION_ROOT=$(mktemp -d /tmp/plannotator-opencode-isolated-XXXXXX)
@@ -207,7 +212,7 @@ write_runtime_helpers() {
 
   local opencode_bin
   opencode_bin="$(command -v opencode || true)"
-  local openchamber_repo="${OPENCHAMBER_REPO:-/Users/ramos/oss-agents/openchamber}"
+  local openchamber_repo="${OPENCHAMBER_REPO:-}"
   local openchamber_data_dir="$ISOLATION_ROOT/openchamber-data"
   mkdir -p "$openchamber_data_dir"
 
@@ -268,19 +273,21 @@ if command -v openchamber >/dev/null 2>&1; then
   exec openchamber serve --foreground "$@"
 fi
 
-LOCAL_OPENCHAMBER_CLI="$OPENCHAMBER_REPO/packages/web/bin/cli.js"
-LOCAL_OPENCHAMBER_DIST="$OPENCHAMBER_REPO/packages/web/dist/index.html"
+if [ -n "${OPENCHAMBER_REPO:-}" ]; then
+  LOCAL_OPENCHAMBER_CLI="$OPENCHAMBER_REPO/packages/web/bin/cli.js"
+  LOCAL_OPENCHAMBER_DIST="$OPENCHAMBER_REPO/packages/web/dist/index.html"
 
-if [ -f "$LOCAL_OPENCHAMBER_CLI" ]; then
-  if [ ! -x "$OPENCHAMBER_REPO/node_modules/.bin/vite" ] && [ ! -x "$OPENCHAMBER_REPO/packages/web/node_modules/.bin/vite" ]; then
-    echo "Installing OpenChamber dependencies in $OPENCHAMBER_REPO..."
-    (cd "$OPENCHAMBER_REPO" && bun install)
+  if [ -f "$LOCAL_OPENCHAMBER_CLI" ]; then
+    if [ ! -x "$OPENCHAMBER_REPO/node_modules/.bin/vite" ] && [ ! -x "$OPENCHAMBER_REPO/packages/web/node_modules/.bin/vite" ]; then
+      echo "Installing OpenChamber dependencies in $OPENCHAMBER_REPO..."
+      (cd "$OPENCHAMBER_REPO" && bun install)
+    fi
+    if [ ! -f "$LOCAL_OPENCHAMBER_DIST" ]; then
+      echo "Building OpenChamber web UI from $OPENCHAMBER_REPO..."
+      (cd "$OPENCHAMBER_REPO" && bun run build:web)
+    fi
+    exec node "$LOCAL_OPENCHAMBER_CLI" serve --foreground "$@"
   fi
-  if [ ! -f "$LOCAL_OPENCHAMBER_DIST" ]; then
-    echo "Building OpenChamber web UI from $OPENCHAMBER_REPO..."
-    (cd "$OPENCHAMBER_REPO" && bun run build:web)
-  fi
-  exec node "$LOCAL_OPENCHAMBER_CLI" serve --foreground "$@"
 fi
 
 echo "Could not find OpenChamber." >&2

@@ -12,7 +12,7 @@
 # Examples:
 #   ./tests/manual/local/sandbox-opencode-isolated.sh
 #   ./tests/manual/local/sandbox-opencode-isolated.sh --runtime auto
-#   ./tests/manual/local/sandbox-opencode-isolated.sh --runtime embedded --no-launch --keep
+#   ./tests/manual/local/sandbox-opencode-isolated.sh --runtime embedded --no-launch
 
 set -e
 
