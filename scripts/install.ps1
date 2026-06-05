@@ -285,9 +285,11 @@ if (Test-Path $pluginHooks) {
 }
 
 # Codex hooks on Windows are still experimental upstream. Do not mutate
-# $env:USERPROFILE\.codex automatically from the Windows installer until that
+# the Codex home automatically from the Windows installer until that
 # path is verified end-to-end.
-$codexDir = "$env:USERPROFILE\.codex"
+# Codex stores config and state under $env:CODEX_HOME when set, falling back
+# to ~\.codex (https://developers.openai.com/codex/config-advanced). (#852)
+$codexDir = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { "$env:USERPROFILE\.codex" }
 $codexHomeHasUserConfig = $false
 if (Test-Path $codexDir) {
     $codexHomeHasUserConfig = [bool](Get-ChildItem -Force $codexDir -ErrorAction SilentlyContinue |
@@ -304,12 +306,12 @@ if ($codexAvailable) {
     Write-Host "Codex detected."
     Write-Host "Codex plan review hooks are experimental on Windows. To try them manually:"
     Write-Host ""
-    Write-Host "  1. Add this to $env:USERPROFILE\.codex\config.toml:"
+    Write-Host "  1. Add this to $codexDir\config.toml:"
     Write-Host ""
     Write-Host "     [features]"
     Write-Host "     hooks = true"
     Write-Host ""
-    Write-Host "  2. Add a Stop hook in $env:USERPROFILE\.codex\hooks.json that runs:"
+    Write-Host "  2. Add a Stop hook in $codexDir\hooks.json that runs:"
     Write-Host ""
     Write-Host "     $codexExePath"
 }
@@ -351,10 +353,10 @@ foreach ($cmd in @("plannotator-review.md", "plannotator-annotate.md", "plannota
     }
 }
 
-# Codex no longer receives skills under ~/.codex/skills — core skills live in
+# Codex no longer receives skills under the Codex home — core skills live in
 # ~/.agents/skills now. Remove the core skills (and existing stale extras) that
-# older installs placed under ~/.codex/skills.
-$staleCodexSkillsDir = "$env:USERPROFILE\.codex\skills"
+# older installs placed under <codex home>\skills.
+$staleCodexSkillsDir = Join-Path $codexDir "skills"
 foreach ($skill in @("plannotator-review", "plannotator-annotate", "plannotator-last", "plannotator-compound", "plannotator-setup-goal")) {
     $staleSkillPath = Join-Path $staleCodexSkillsDir $skill
     if (Test-Path $staleSkillPath) {

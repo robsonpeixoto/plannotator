@@ -403,13 +403,17 @@ echo }
 )
 
 REM Codex hooks on Windows are still experimental upstream. Do not mutate
-REM %%USERPROFILE%%\.codex automatically from the cmd installer until that path
+REM the Codex home automatically from the cmd installer until that path
 REM is verified end-to-end.
+REM Codex stores config and state under CODEX_HOME when set, falling back to
+REM %%USERPROFILE%%\.codex (developers.openai.com/codex/config-advanced). (#852)
+set "CODEX_DIR=%USERPROFILE%\.codex"
+if defined CODEX_HOME set "CODEX_DIR=%CODEX_HOME%"
 set "CODEX_AVAILABLE=0"
 where codex >nul 2>&1
 if !ERRORLEVEL! equ 0 set "CODEX_AVAILABLE=1"
-if exist "%USERPROFILE%\.codex" (
-    for /f "delims=" %%C in ('dir /b /a "%USERPROFILE%\.codex" 2^>nul') do (
+if exist "!CODEX_DIR!" (
+    for /f "delims=" %%C in ('dir /b /a "!CODEX_DIR!" 2^>nul') do (
         if /i not "%%C"=="skills" if /i not "%%C"==".DS_Store" set "CODEX_AVAILABLE=1"
     )
 )
@@ -423,12 +427,12 @@ if "!CODEX_AVAILABLE!"=="1" (
     echo Codex detected.
     echo Codex plan review hooks are experimental on Windows. To try them manually:
     echo.
-    echo   1. Add this to %%USERPROFILE%%\.codex\config.toml:
+    echo   1. Add this to !CODEX_DIR!\config.toml:
     echo.
     echo      [features]
     echo      hooks = true
     echo.
-    echo   2. Add a Stop hook in %%USERPROFILE%%\.codex\hooks.json that runs:
+    echo   2. Add a Stop hook in !CODEX_DIR!\hooks.json that runs:
     echo.
     echo      !INSTALL_PATH!
     echo.
@@ -453,7 +457,7 @@ REM   %%USERPROFILE%%\.agents\skills            <- apps\skills\core\* (all 4)
 REM   %%USERPROFILE%%\.kiro\skills              <- apps\kiro-cli\skills\* (3) + 2 extras (when kiro detected)
 REM   %%USERPROFILE%%\.config\opencode\commands <- apps\opencode-plugin\commands\*.md (always)
 REM   %%USERPROFILE%%\.gemini\commands          <- apps\gemini\commands\*.toml (when ~/.gemini exists)
-REM Nothing goes to %%USERPROFILE%%\.codex\skills anymore.
+REM Nothing goes to the Codex home (CODEX_DIR\skills) anymore.
 REM ----------------------------------------------------------------------
 
 REM Aggressive cleanup on upgrade — echo each removal, ignore missing.
@@ -472,7 +476,7 @@ for %%C in (plannotator-review.md plannotator-annotate.md plannotator-last.md pl
 
 REM Codex no longer receives core skills (they live in %%USERPROFILE%%\.agents\skills).
 REM Remove the old per-skill Codex installs plus the previously-stale compound/setup-goal.
-set "STALE_CODEX_SKILLS_DIR=%USERPROFILE%\.codex\skills"
+set "STALE_CODEX_SKILLS_DIR=!CODEX_DIR!\skills"
 for %%S in (plannotator-review plannotator-annotate plannotator-last plannotator-compound plannotator-setup-goal) do (
     if exist "!STALE_CODEX_SKILLS_DIR!\%%S" (
         rmdir /s /q "!STALE_CODEX_SKILLS_DIR!\%%S" >nul 2>&1

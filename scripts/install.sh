@@ -322,9 +322,13 @@ if ! echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
 fi
 
 # --- Codex CLI / Desktop app support (only if Codex is installed or configured) ---
+# Codex stores config and state under $CODEX_HOME when set, falling back to
+# ~/.codex (https://developers.openai.com/codex/config-advanced).
+CODEX_DIR="${CODEX_HOME:-$HOME/.codex}"
+
 codex_home_has_user_config() {
-    [ -d "$HOME/.codex" ] || return 1
-    [ -n "$(find "$HOME/.codex" -mindepth 1 -maxdepth 1 ! -name skills ! -name .DS_Store -print -quit 2>/dev/null)" ]
+    [ -d "$CODEX_DIR" ] || return 1
+    [ -n "$(find "$CODEX_DIR" -mindepth 1 -maxdepth 1 ! -name skills ! -name .DS_Store -print -quit 2>/dev/null)" ]
 }
 
 codex_available=0
@@ -338,7 +342,6 @@ if command -v kiro-cli >/dev/null 2>&1 || [ -d "$HOME/.kiro" ]; then
 fi
 
 if [ "$codex_available" -eq 1 ]; then
-    CODEX_DIR="$HOME/.codex"
     CODEX_CONFIG="$CODEX_DIR/config.toml"
     CODEX_HOOKS="$CODEX_DIR/hooks.json"
     PLANNOTATOR_BIN="${INSTALL_DIR}/plannotator"
@@ -588,7 +591,7 @@ done
 
 # Codex no longer hosts core skills (they now live in ~/.agents/skills).
 # Remove the command-overlap skills and the stale shared-agent skills.
-STALE_CODEX_SKILLS_DIR="$HOME/.codex/skills"
+STALE_CODEX_SKILLS_DIR="$CODEX_DIR/skills"
 for skill in plannotator-review plannotator-annotate plannotator-last plannotator-compound plannotator-setup-goal; do
     if [ -d "$STALE_CODEX_SKILLS_DIR/$skill" ]; then
         rm -rf "$STALE_CODEX_SKILLS_DIR/$skill"

@@ -537,6 +537,17 @@ describe("install shared behavior", () => {
   const sh = readFileSync(join(scriptsDir, "install.sh"), "utf-8");
   const ps = readFileSync(join(scriptsDir, "install.ps1"), "utf-8");
 
+  test("all installers respect CODEX_HOME for the Codex home directory", () => {
+    // Codex stores config and state under $CODEX_HOME when set, falling back
+    // to ~/.codex (developers.openai.com/codex/config-advanced). #852
+    const cmdScript = readFileSync(join(scriptsDir, "install.cmd"), "utf-8");
+    expect(sh).toContain('CODEX_DIR="${CODEX_HOME:-$HOME/.codex}"');
+    expect(ps).toContain('if ($env:CODEX_HOME) { $env:CODEX_HOME } else { "$env:USERPROFILE\\.codex" }');
+    expect(cmdScript).toContain('if defined CODEX_HOME set "CODEX_DIR=%CODEX_HOME%"');
+    // The fallback definition must be the ONLY hardcoded ~/.codex path left.
+    expect((sh.match(/\$HOME\/\.codex/g) ?? []).length).toBe(1);
+  });
+
   test("all installers explain the old-tag core-skill soft-skip", () => {
     // A --version tag predating apps/skills/core must be diagnosed in every
     // installer, not just bash — a silent skip leaves Windows users with no
